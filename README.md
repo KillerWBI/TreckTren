@@ -84,4 +84,16 @@
 
 ## Прод
 
-`npm run build`, затем сервер с `CLIENT_DIST_DIR=../client/dist`, `NODE_ENV=production`, `DATABASE_SSL=true` и `TRUST_PROXY=1`. Он отдаёт и API, и клиент с одного домена, поэтому cookie работает с `SameSite=Strict`. Миграции перед деплоем: `npm run db:migrate:prod -w @trektren/server`.
+Прод живёт на Railway, проект `trecktren`: https://app-production-0b85540c.up.railway.app. Каждый пуш в `main` деплоится сам.
+
+| Сервис     | Что это                                                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `app`      | Этот репозиторий, сборщик Railpack, регион sfo. Один сервер отдаёт и API, и собранный клиент, поэтому cookie работает с `SameSite=Strict` |
+| `Postgres` | Шаблон Railway PostgreSQL 18 с томом на 5 ГБ                                                                                              |
+
+Настройки `app`:
+
+- Сборка: `npm run build` из корня (Railpack запускает его сам), Node 22 через `RAILPACK_NODE_VERSION=22`.
+- Перед запуском: `npm run db:migrate:prod -w @trektren/server` — миграции катятся до старта новой версии; если упали, деплой не переключается.
+- Запуск: `npm start`, healthcheck: `/api/v1/health`. `NODE_ENV=production` Railpack ставит сам.
+- Переменные: `DATABASE_URL=${{Postgres.DATABASE_URL}}` (внутренняя сеть, без SSL), `JWT_ACCESS_SECRET`, `PORT=8080`, `CLIENT_DIST_DIR=../client/dist`, `TRUST_PROXY=1`, `CORS_ORIGIN` — домен приложения, `COOKIE_SAMESITE=strict`.
