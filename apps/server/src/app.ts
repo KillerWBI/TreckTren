@@ -4,16 +4,21 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Router } from 'express';
 import helmet from 'helmet';
-import { enableRussianZodErrors } from '@trektren/shared';
+import { enableRussianZodErrors, type AuthMode } from '@trektren/shared';
 import { config, isTest } from './config.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLog } from './middleware/request-log.js';
-import { authRouter } from './modules/auth/routes.js';
+import { createAuthRouter } from './modules/auth/routes.js';
 import { cardRouter } from './modules/card/routes.js';
 
 enableRussianZodErrors();
 
-export function createApp() {
+export interface AppOptions {
+  /** По умолчанию — AUTH_MODE из окружения; тесты задают режим явно. */
+  authMode?: AuthMode;
+}
+
+export function createApp({ authMode = config.AUTH_MODE }: AppOptions = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (config.TRUST_PROXY > 0) app.set('trust proxy', config.TRUST_PROXY);
@@ -33,7 +38,7 @@ export function createApp() {
   api.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
-  api.use(authRouter);
+  api.use(createAuthRouter(authMode));
   api.use(cardRouter);
   api.use(notFoundHandler);
   app.use('/api/v1', api);

@@ -11,6 +11,7 @@ export const ERROR_CODES = [
   'EMAIL_TAKEN',
   'REFRESH_INVALID',
   'RATE_LIMITED',
+  'FEATURE_DISABLED',
   'INTERNAL',
 ] as const;
 

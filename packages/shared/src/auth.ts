@@ -30,6 +30,17 @@ export const deleteAccountRequestSchema = z.strictObject({
   password: z.string().min(1).max(128),
 });
 
+/**
+ * password — обычные регистрация и вход.
+ * demo — регистрации и входа нет, все заходят в один тестовый аккаунт.
+ */
+export const AUTH_MODES = ['password', 'demo'] as const;
+export type AuthMode = (typeof AUTH_MODES)[number];
+
+export interface AuthModeResponse {
+  mode: AuthMode;
+}
+
 export interface PublicUser {
   id: string;
   email: string;

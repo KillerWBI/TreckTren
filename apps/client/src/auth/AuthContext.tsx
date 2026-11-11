@@ -8,14 +8,34 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AuthResponse, LoginRequest, PublicUser, RegisterRequest } from '@trektren/shared';
-import { api, refreshSession, setAccessToken, setSessionLostHandler } from '../api/http';
+import type {
+  AuthMode,
+  AuthModeResponse,
+  AuthResponse,
+  LoginRequest,
+  PublicUser,
+  RegisterRequest,
+} from '@trektren/shared';
+import {
+  api,
+  refreshSession,
+  setAccessToken,
+  setAuthMode,
+  setSessionLostHandler,
+} from '../api/http';
 
 type AuthState =
-  { status: 'loading' } | { status: 'guest' } | { status: 'authed'; user: PublicUser };
+  | { status: 'loading' }
+  /** Сервер недоступен: показываем «Повторить», а не экран входа. */
+  | { status: 'offline' }
+  | { status: 'guest' }
+  | { status: 'authed'; user: PublicUser };
 
 interface AuthContextValue {
   state: AuthState;
+  /** demo — без регистрации и входа, все в одном тестовом аккаунте. */
+  mode: AuthMode;
+  retry: () => void;
   login: (input: LoginRequest) => Promise<void>;
   register: (input: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
@@ -27,7 +47,25 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
+  const [mode, setMode] = useState<AuthMode>('password');
   const queryClient = useQueryClient();
+
+  const boot = useCallback(async () => {
+    setState({ status: 'loading' });
+    let current: AuthMode;
+    try {
+      current = (await api<AuthModeResponse>('/auth/mode', { noRefresh: true })).mode;
+    } catch {
+      setState({ status: 'offline' });
+      return;
+    }
+    setAuthMode(current);
+    setMode(current);
+    // В демо refreshSession сам откроет сессию тестового аккаунта, если её нет.
+    const session = await refreshSession();
+    if (session) setState({ status: 'authed', user: session.user });
+    else setState({ status: current === 'demo' ? 'offline' : 'guest' });
+  }, []);
 
   const forget = useCallback(() => {
     setAccessToken(null);
@@ -36,16 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   useEffect(() => {
-    setSessionLostHandler(forget);
-    let cancelled = false;
-    void refreshSession().then((session) => {
-      if (cancelled) return;
-      setState(session ? { status: 'authed', user: session.user } : { status: 'guest' });
+    setSessionLostHandler(() => {
+      setAccessToken(null);
+      queryClient.clear();
+      // В демо сессия теряется только без связи с сервером.
+      setState((prev) =>
+        prev.status === 'authed' && mode === 'demo' ? { status: 'offline' } : { status: 'guest' },
+      );
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [forget]);
+  }, [mode, queryClient]);
+
+  useEffect(() => {
+    void boot();
+  }, [boot]);
 
   const start = useCallback((session: AuthResponse) => {
     setAccessToken(session.accessToken);
@@ -55,6 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       state,
+      mode,
+      retry: () => void boot(),
       login: async (input) =>
         start(
           await api<AuthResponse>('/auth/login', { method: 'POST', json: input, noRefresh: true }),
@@ -73,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       forget,
     }),
-    [state, start, forget],
+    [state, mode, boot, start, forget],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

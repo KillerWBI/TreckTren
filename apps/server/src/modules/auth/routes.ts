@@ -1,8 +1,10 @@
-import { Router, type CookieOptions, type Response } from 'express';
+import { Router, type CookieOptions, type RequestHandler, type Response } from 'express';
 import {
   deleteAccountRequestSchema,
   loginRequestSchema,
   registerRequestSchema,
+  type AuthMode,
+  type AuthModeResponse,
   type AuthResponse,
 } from '@trektren/shared';
 import { config, isProd } from '../../config.js';
@@ -41,43 +43,77 @@ function readRefreshCookie(cookies: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export const authRouter = Router();
+/**
+ * Маршруты авторизации. В демо-режиме регистрации, входа и удаления аккаунта нет:
+ * клиент получает сессию тестового аккаунта через POST /auth/demo.
+ * Токены, ротация refresh и защита маршрутов работают одинаково в обоих режимах.
+ */
+export function createAuthRouter(mode: AuthMode) {
+  const router = Router();
+  const demo = mode === 'demo';
 
-authRouter.post('/auth/register', authLimiter, async (req, res) => {
-  const { email, password } = parseBody(registerRequestSchema, req.body);
-  sendSession(res, await auth.register(email, password), 201);
-});
+  const disabledInDemo: RequestHandler = (_req, _res, next) => {
+    if (demo) {
+      throw new AppError(403, 'FEATURE_DISABLED', 'Регистрация и вход временно отключены');
+    }
+    next();
+  };
 
-authRouter.post('/auth/login', authLimiter, async (req, res) => {
-  const { email, password } = parseBody(loginRequestSchema, req.body);
-  sendSession(res, await auth.login(email, password));
-});
+  router.get('/auth/mode', (_req, res) => {
+    const body: AuthModeResponse = { mode };
+    res.json(body);
+  });
 
-authRouter.post('/auth/refresh', refreshLimiter, async (req, res) => {
-  const raw = readRefreshCookie(req.cookies);
-  if (!raw) throw new AppError(401, 'REFRESH_INVALID', 'Сессия истекла, войди заново');
-  try {
-    sendSession(res, await auth.rotateRefreshToken(raw));
-  } catch (err) {
+  router.post('/auth/demo', refreshLimiter, async (_req, res) => {
+    if (!demo) throw new AppError(404, 'NOT_FOUND', 'Маршрут не найден');
+    sendSession(res, await auth.demoSession());
+  });
+
+  router.post('/auth/register', disabledInDemo, authLimiter, async (req, res) => {
+    const { email, password } = parseBody(registerRequestSchema, req.body);
+    sendSession(res, await auth.register(email, password), 201);
+  });
+
+  router.post('/auth/login', disabledInDemo, authLimiter, async (req, res) => {
+    const { email, password } = parseBody(loginRequestSchema, req.body);
+    sendSession(res, await auth.login(email, password));
+  });
+
+  router.post('/auth/refresh', refreshLimiter, async (req, res) => {
+    const raw = readRefreshCookie(req.cookies);
+    if (!raw) throw new AppError(401, 'REFRESH_INVALID', 'Сессия истекла, войди заново');
+    try {
+      const session = await auth.rotateRefreshToken(raw);
+      // Демо выключили: старые сессии тестового аккаунта больше не продлеваются.
+      if (!demo && session.user.email === auth.DEMO_EMAIL) {
+        await auth.revokeAllRefreshTokens(session.user.id);
+        throw new AppError(401, 'REFRESH_INVALID', 'Сессия истекла, войди заново');
+      }
+      sendSession(res, session);
+    } catch (err) {
+      res.clearCookie(REFRESH_COOKIE, cookieOptions());
+      throw err;
+    }
+  });
+
+  router.post('/auth/logout', async (req, res) => {
+    const raw = readRefreshCookie(req.cookies);
+    if (raw) await auth.revokeRefreshToken(raw);
     res.clearCookie(REFRESH_COOKIE, cookieOptions());
-    throw err;
-  }
-});
+    res.status(204).end();
+  });
 
-authRouter.post('/auth/logout', async (req, res) => {
-  const raw = readRefreshCookie(req.cookies);
-  if (raw) await auth.revokeRefreshToken(raw);
-  res.clearCookie(REFRESH_COOKIE, cookieOptions());
-  res.status(204).end();
-});
+  router.get('/me', requireAuth, async (req, res) => {
+    res.json(await auth.getUser(userIdOf(req)));
+  });
 
-authRouter.get('/me', requireAuth, async (req, res) => {
-  res.json(await auth.getUser(userIdOf(req)));
-});
+  // В демо тестовый аккаунт общий: удалить его может любой, у кого есть ссылка.
+  router.delete('/account', requireAuth, disabledInDemo, async (req, res) => {
+    const { password } = parseBody(deleteAccountRequestSchema, req.body);
+    await auth.deleteAccount(userIdOf(req), password);
+    res.clearCookie(REFRESH_COOKIE, cookieOptions());
+    res.status(204).end();
+  });
 
-authRouter.delete('/account', requireAuth, async (req, res) => {
-  const { password } = parseBody(deleteAccountRequestSchema, req.body);
-  await auth.deleteAccount(userIdOf(req), password);
-  res.clearCookie(REFRESH_COOKIE, cookieOptions());
-  res.status(204).end();
-});
+  return router;
+}

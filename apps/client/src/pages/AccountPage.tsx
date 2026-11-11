@@ -4,7 +4,26 @@ import { api } from '../api/http';
 import { useAuth } from '../auth/AuthContext';
 
 export function AccountPage() {
-  const { state, logout, forget } = useAuth();
+  const { state, mode } = useAuth();
+  if (state.status !== 'authed') return null;
+  return mode === 'demo' ? <DemoAccount /> : <PasswordAccount email={state.user.email} />;
+}
+
+/** Демо-режим: выхода и удаления нет — аккаунт общий для всех, у кого есть ссылка. */
+function DemoAccount() {
+  return (
+    <main className="page">
+      <h1 className="page-title">Аккаунт</h1>
+      <p className="page-lead">
+        Это тестовый аккаунт. Регистрация и вход пока выключены: все, у кого есть ссылка, попадают
+        сюда и видят одни и те же данные. Не вноси ничего личного.
+      </p>
+    </main>
+  );
+}
+
+function PasswordAccount({ email }: { email: string }) {
+  const { logout, forget } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState('');
 
@@ -12,8 +31,6 @@ export function AccountPage() {
     mutationFn: (pwd: string) => api('/account', { method: 'DELETE', json: { password: pwd } }),
     onSuccess: () => forget(),
   });
-
-  if (state.status !== 'authed') return null;
 
   const onDelete = (event: FormEvent) => {
     event.preventDefault();
@@ -26,7 +43,7 @@ export function AccountPage() {
       <dl className="account">
         <div>
           <dt>Email</dt>
-          <dd>{state.user.email}</dd>
+          <dd>{email}</dd>
         </div>
       </dl>
       <button type="button" className="button button-secondary" onClick={() => void logout()}>

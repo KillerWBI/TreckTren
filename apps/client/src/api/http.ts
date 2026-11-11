@@ -1,4 +1,4 @@
-import type { ApiErrorBody, AuthResponse, ErrorCode } from '@trektren/shared';
+import type { ApiErrorBody, AuthMode, AuthResponse, ErrorCode } from '@trektren/shared';
 
 const BASE = '/api/v1';
 
@@ -14,6 +14,7 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null;
+let authMode: AuthMode = 'password';
 let refreshing: Promise<AuthResponse | null> | null = null;
 let onSessionLost: () => void = () => {};
 
@@ -21,31 +22,35 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
+export function setAuthMode(mode: AuthMode): void {
+  authMode = mode;
+}
+
 export function setSessionLostHandler(handler: () => void): void {
   onSessionLost = handler;
 }
 
+async function requestSession(path: '/auth/refresh' | '/auth/demo'): Promise<AuthResponse | null> {
+  try {
+    const res = await fetch(`${BASE}${path}`, { method: 'POST', credentials: 'same-origin' });
+    if (!res.ok) return null;
+    return (await res.json()) as AuthResponse;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Обновляет access-токен по refresh-cookie. Параллельные вызовы делят один запрос:
- * иначе две вкладки или двойной эффект StrictMode сожгут токен друг другу.
+ * Обновляет access-токен по refresh-cookie. В демо-режиме, если сессии нет или она
+ * истекла, сразу открывает сессию тестового аккаунта. Параллельные вызовы делят один
+ * запрос: иначе две вкладки или двойной эффект StrictMode сожгут токен друг другу.
  */
 export function refreshSession(): Promise<AuthResponse | null> {
   refreshing ??= (async () => {
-    try {
-      const res = await fetch(`${BASE}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-      if (!res.ok) {
-        accessToken = null;
-        return null;
-      }
-      const body = (await res.json()) as AuthResponse;
-      accessToken = body.accessToken;
-      return body;
-    } catch {
-      return null;
-    }
+    let session = await requestSession('/auth/refresh');
+    if (!session && authMode === 'demo') session = await requestSession('/auth/demo');
+    accessToken = session?.accessToken ?? null;
+    return session;
   })().finally(() => {
     refreshing = null;
   });

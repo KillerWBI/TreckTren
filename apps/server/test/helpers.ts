@@ -2,9 +2,13 @@ import request from 'supertest';
 import type { AuthResponse } from '@trektren/shared';
 import { createApp } from '../src/app.js';
 
-export const app = createApp();
+/** Обычный режим с регистрацией и входом. */
+export const app = createApp({ authMode: 'password' });
+/** Демо-режим: все в одном тестовом аккаунте. */
+export const demoApp = createApp({ authMode: 'demo' });
 
 export const api = () => request(app);
+export const demoApi = () => request(demoApp);
 
 export interface TestUser {
   email: string;

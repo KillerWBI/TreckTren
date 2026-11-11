@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import type { PoolClient } from 'pg';
 import type { PublicUser } from '@trektren/shared';
@@ -29,6 +30,48 @@ const getDummyHash = () => (dummyHash ??= bcrypt.hash('dummy-password', config.B
 export interface Session {
   user: PublicUser;
   refreshToken: string;
+}
+
+/** Тестовый аккаунт демо-режима. Домен .local не существует, письма туда не уйдут. */
+export const DEMO_EMAIL = 'demo@trecktren.local';
+
+/**
+ * Демо-режим: находит или создаёт тестовый аккаунт и открывает в нём сессию.
+ * Пароль случайный и нигде не хранится — войти в этот аккаунт по паролю нельзя.
+ */
+export async function demoSession(): Promise<Session> {
+  const find = (db: Db | PoolClient) =>
+    db.query<UserRow>(
+      'SELECT id, email, password_hash, created_at FROM users WHERE lower(email) = $1',
+      [DEMO_EMAIL],
+    );
+
+  let user = (await find(pool)).rows[0];
+  if (!user) {
+    const passwordHash = await bcrypt.hash(
+      randomBytes(24).toString('base64url'),
+      config.BCRYPT_ROUNDS,
+    );
+    user = await withTransaction(async (c) => {
+      // Два первых запроса одновременно: второй ждёт первый и ничего не вставляет.
+      await c.query(
+        `INSERT INTO users (email, password_hash, health_consent_at, adult_confirmed_at)
+         VALUES ($1, $2, now(), now())
+         ON CONFLICT ((lower(email))) DO NOTHING`,
+        [DEMO_EMAIL, passwordHash],
+      );
+      const created = (await find(c)).rows[0]!;
+      await c.query('INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [
+        created.id,
+      ]);
+      await c.query('INSERT INTO onboarding (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [
+        created.id,
+      ]);
+      return created;
+    });
+  }
+  const refreshToken = await issueRefreshToken(pool, user.id);
+  return { user: toPublicUser(user), refreshToken };
 }
 
 export async function register(email: string, password: string): Promise<Session> {

@@ -4,7 +4,9 @@ import { createApp } from './app.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
-  console.log(`API: http://localhost:${config.PORT}/api/v1 (${config.NODE_ENV})`);
+  console.log(
+    `API: http://localhost:${config.PORT}/api/v1 (${config.NODE_ENV}, вход: ${config.AUTH_MODE})`,
+  );
 });
 
 function shutdown(signal: string) {
