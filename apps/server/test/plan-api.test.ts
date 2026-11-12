@@ -122,52 +122,90 @@ describe('план: по правилам', () => {
     expect(plan.block).toMatchObject({
       source: 'rules',
       model: null,
-      split: 'Фулбади A/B/C',
+      split: 'Присед / жим / становая',
       startDate: MWF[0],
       comment: 'Хочу больше спины',
     });
     expect(plan.block!.generationNote).toMatch(/ИИ/);
     expect(plan.sessions.map((s) => s.date)).toEqual(MWF);
     expect(plan.sessions.map((s) => s.templateKey)).toEqual(['A', 'B', 'C', 'A', 'B', 'C']);
-    const loads = plan.sessions.flatMap((s) => s.exercises.map((x) => x.load.kind));
-    expect(loads.every((k) => k === 'calibrate' || k === 'bodyweight')).toBe(true);
-    expect(loads).toContain('calibrate');
+    // Силовых данных нет — веса по весу тела и стажу, блоки — подбор на месте.
+    const loads = plan.sessions.flatMap((s) => s.exercises.map((x) => x.load));
+    expect(loads.find((l) => l.kind === 'kg')).toMatchObject({ basis: 'bodyweight' });
+    for (const l of loads) {
+      if (l.kind === 'calibrate') expect(l.reason).toBe('stack');
+    }
     expect(plan.sessions[0]!.exercises[0]!.name).toMatch(/[а-я]/i);
   });
 
-  it('стартовые веса пишутся в карточку и дают килограммы в плане', async () => {
+  it('силовые: реальный максимум и рабочий подход, веса в плане от них', async () => {
     const { auth, call } = await athlete();
     await call().post('/api/v1/plan/generate').set(auth).send({ dates: MWF }).expect(200);
 
     const res = await call()
-      .post('/api/v1/strength/baseline')
+      .put('/api/v1/strength')
       .set(auth)
       .send({
         lifts: [
-          { slug: 'bench-press', weightKg: 80, reps: 5 },
-          { slug: 'barbell-back-squat', weightKg: 120, reps: 1 },
+          { slug: 'bench-press', testedKg: 100, working: { weightKg: 80, reps: 10, rir: 0 } },
+          { slug: 'barbell-back-squat', working: { weightKg: 100, reps: 5, rir: 1 } },
         ],
+        targets: { 'bench-press': 120 },
       })
       .expect(200);
-    expect(res.body.card.strength.lifts['bench-press']).toMatchObject({
-      oneRmKg: 93.3,
-      estimated: true,
-    });
-    expect(res.body.card.strength.lifts['barbell-back-squat']).toMatchObject({
-      oneRmKg: 120,
+    const lifts = res.body.card.strength.lifts;
+    expect(lifts['bench-press']).toMatchObject({
+      oneRmKg: 100,
       estimated: false,
+      testedKg: 100,
+      source: 'user',
     });
+    expect(lifts['barbell-back-squat']).toMatchObject({ oneRmKg: 120, estimated: true });
+    expect(res.body.card.strength.targets).toEqual({ 'bench-press': 120 });
 
     const plan = (await call().get('/api/v1/plan').set(auth).expect(200)).body as PlanResponse;
-    const bench = plan.sessions.flatMap((s) => s.exercises).find((x) => x.slug === 'bench-press')!;
-    expect(bench.load).toMatchObject({ kind: 'kg', oneRmKg: 93.3 });
-    if (bench.load.kind === 'kg') expect(bench.load.kg % 2.5).toBe(0);
+    const all = plan.sessions.flatMap((s) => s.exercises);
+    expect(all.find((x) => x.slug === 'bench-press')!.load).toMatchObject({
+      kind: 'kg',
+      basis: 'own',
+      oneRmKg: 100,
+    });
+    // Становой нет — от приседа; гантели на наклонной — от жима.
+    expect(all.find((x) => x.slug === 'deadlift')!.load).toMatchObject({
+      basis: 'ratio',
+      fromSlug: 'barbell-back-squat',
+    });
+    expect(plan.block!.staleSections).toEqual([]);
+
+    // Удаление: null убирает максимум, остаётся расчёт по подходу.
+    const removed = await call()
+      .put('/api/v1/strength')
+      .set(auth)
+      .send({ lifts: [{ slug: 'bench-press', testedKg: null }] })
+      .expect(200);
+    expect(removed.body.card.strength.lifts['bench-press']).toMatchObject({
+      oneRmKg: 106.7,
+      estimated: true,
+    });
+    expect(removed.body.card.strength.lifts['bench-press'].testedKg).toBeUndefined();
 
     await call()
-      .post('/api/v1/strength/baseline')
+      .put('/api/v1/strength')
       .set(auth)
-      .send({ lifts: [{ slug: 'push-up', weightKg: 10, reps: 5 }] })
+      .send({ lifts: [{ slug: 'push-up', testedKg: 10 }] })
       .expect(400);
+  });
+
+  it('поменял карточку после плана — план просит перестроить', async () => {
+    const { auth, call } = await athlete();
+    await call().post('/api/v1/plan/generate').set(auth).send({ dates: MWF }).expect(200);
+    await call()
+      .patch('/api/v1/card')
+      .set(auth)
+      .send({ patch: { availability: { sessionMinutes: 60 } } })
+      .expect(200);
+    const plan = (await call().get('/api/v1/plan').set(auth).expect(200)).body as PlanResponse;
+    expect(plan.block!.staleSections).toEqual(['availability']);
   });
 
   it('смена дней перекладывает тот же блок', async () => {
@@ -256,6 +294,51 @@ describe('план: ИИ', () => {
       user.userId,
     ]);
     expect(rows).toEqual([{ requests: 1, tokens: 1234 }]);
+  });
+
+  it('цифры из текста анкеты и комментария ИИ записывает в «Силовые», своё не трогает', async () => {
+    const { ai } = fakeAi(() => ({
+      ...aiTemplate,
+      fromText: {
+        lifts: [
+          { slug: 'barbell-back-squat', kind: 'max', weightKg: 120, reps: 1 },
+          { slug: 'deadlift', kind: 'max', weightKg: 170 },
+          { slug: 'bench-press', kind: 'max', weightKg: 999 },
+          { slug: 'made-up', kind: 'max', weightKg: 50 },
+        ],
+        targets: [{ slug: 'barbell-back-squat', weightKg: 150 }],
+      },
+    }));
+    const app = createApp({ authMode: 'password', ai });
+    const { auth, call } = await athlete(app, {
+      ...fullCard,
+      goals: { ...fullCard.goals, notes: 'присед 120 на раз, становая 170' },
+    });
+    await call()
+      .put('/api/v1/strength')
+      .set(auth)
+      .send({ lifts: [{ slug: 'bench-press', testedKg: 100 }] })
+      .expect(200);
+
+    const res = await call()
+      .post('/api/v1/plan/generate')
+      .set(auth)
+      .send({ dates: MWF })
+      .expect(200);
+    expect(res.body.block.factsNote).toMatch(/присед со штангой — максимум 120 кг/);
+    expect(res.body.block.factsNote).toMatch(/цель: присед со штангой 150 кг/);
+
+    const card = (await call().get('/api/v1/card').set(auth).expect(200)).body.card as AthleteCard;
+    expect(card.strength!.lifts!['barbell-back-squat']).toMatchObject({
+      oneRmKg: 120,
+      testedKg: 120,
+      source: 'text',
+    });
+    expect(card.strength!.lifts!.deadlift).toMatchObject({ oneRmKg: 170 });
+    expect(card.strength!.lifts!['bench-press']).toMatchObject({ oneRmKg: 100, source: 'user' });
+    expect(card.strength!.targets).toEqual({ 'barbell-back-squat': 150 });
+    // Запись ИИ не делает план «устаревшим».
+    expect(res.body.block.staleSections).toEqual([]);
   });
 
   it('ИИ не ответил — план по правилам с пояснением', async () => {

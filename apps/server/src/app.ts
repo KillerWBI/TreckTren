@@ -12,6 +12,7 @@ import { requestLog } from './middleware/request-log.js';
 import { createAuthRouter } from './modules/auth/routes.js';
 import { cardRouter } from './modules/card/routes.js';
 import { createPlanRouter } from './modules/plan/routes.js';
+import { strengthRouter } from './modules/strength/routes.js';
 
 enableRussianZodErrors();
 
@@ -45,6 +46,7 @@ export function createApp({ authMode = config.AUTH_MODE, ai = aiFromConfig() }: 
   api.use(createAuthRouter(authMode));
   api.use(cardRouter);
   api.use(createPlanRouter(ai));
+  api.use(strengthRouter);
   api.use(notFoundHandler);
   app.use('/api/v1', api);
 

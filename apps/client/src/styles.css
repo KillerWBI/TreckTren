@@ -1138,3 +1138,116 @@ button {
   font-size: var(--t-xs);
   color: var(--steel);
 }
+
+/* Силовые */
+
+.section-head-plain {
+  grid-template-columns: 1fr auto;
+}
+
+.section-panel-plain {
+  padding-left: 0;
+}
+
+.strength {
+  gap: 14px;
+}
+
+.lift {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 12px 0 14px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.lift legend {
+  float: left;
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1.15;
+}
+
+.lift legend .legend-note {
+  font-family: var(--font-body);
+  font-size: var(--t-xs);
+}
+
+.lift-field,
+.lift-rir {
+  display: grid;
+  gap: 4px;
+  font-size: var(--t-xs);
+  color: var(--steel);
+}
+
+.lift-input {
+  position: relative;
+  display: block;
+}
+
+.lift-input input,
+.lift-rir select,
+.select {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 30px 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--iron);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+}
+
+.select {
+  padding-right: 10px;
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--t-md);
+}
+
+.lift-rir select {
+  padding-right: 6px;
+}
+
+.lift-working {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 0.7fr) minmax(0, 0.8fr);
+  align-items: end;
+  gap: 6px;
+}
+
+.lift-working > span[aria-hidden] {
+  padding-bottom: 12px;
+}
+
+.lift-label {
+  padding-bottom: 12px;
+  font-size: var(--t-xs);
+  color: var(--steel);
+}
+
+.lift-reps input {
+  padding-right: 8px;
+}
+
+.lift-basis {
+  grid-column: 1 / -1;
+  font-size: var(--t-xs);
+  color: var(--steel);
+}
+
+.exercise-hint {
+  grid-column: 1 / -1;
+  font-size: var(--t-xs);
+  color: var(--steel);
+}

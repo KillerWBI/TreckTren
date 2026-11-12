@@ -9,10 +9,12 @@ import { SectionEditor } from '../card/SectionEditor';
 import { isFilled, SECTIONS, type SectionDef, type SectionKey } from '../card/sections';
 import { CARD_KEY } from '../card/useSaveCard';
 import { WeakPointsEditor } from '../card/WeakPointsEditor';
+import { StrengthForm, strengthSummary } from '../plan/StrengthForm';
+import { useExercises } from '../plan/usePlan';
 
 export function CardPage() {
   const query = useQuery({ queryKey: CARD_KEY, queryFn: () => api<CardResponse>('/card') });
-  const [open, setOpen] = useState<SectionKey | null>(null);
+  const [open, setOpen] = useState<SectionKey | 'strength' | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
   if (query.isPending) return <Loading text="Загружаю карточку" />;
@@ -65,6 +67,15 @@ export function CardPage() {
         </h2>
         {rows(true)}
       </section>
+      <StrengthRow
+        card={card}
+        open={open === 'strength'}
+        onToggle={() => setOpen(open === 'strength' ? null : 'strength')}
+        onClose={(saved) => {
+          setOpen(null);
+          if (saved) setAnnouncement('Силовые сохранены');
+        }}
+      />
       <section className="section-group" aria-labelledby="optional-heading">
         <h2 id="optional-heading" className="group-title">
           Можно заполнить позже
@@ -128,5 +139,54 @@ function SectionRow({ def, card, version, open, onToggle, onClose }: RowProps) {
         </div>
       )}
     </div>
+  );
+}
+
+/** «Силовые» — свой блок: максимумы, рабочие подходы и цели по упражнениям. */
+function StrengthRow({
+  card,
+  open,
+  onToggle,
+  onClose,
+}: {
+  card: AthleteCard;
+  open: boolean;
+  onToggle: () => void;
+  onClose: (saved: boolean) => void;
+}) {
+  const exercises = useExercises();
+  const names = new Map((exercises.data ?? []).map((e) => [e.slug, e.name]));
+  const summary = strengthSummary(card, names);
+  return (
+    <section className="section-group" aria-labelledby="strength-heading">
+      <h2 id="strength-heading" className="group-title">
+        Силовые
+      </h2>
+      <div className="section-row" data-open={open}>
+        <button
+          type="button"
+          className="section-head section-head-plain"
+          aria-expanded={open}
+          aria-controls="section-strength"
+          onClick={onToggle}
+        >
+          <span className="section-text">
+            <span className="section-title">Максимумы и цели</span>
+            <span className={summary ? 'section-summary' : 'section-summary section-summary-empty'}>
+              {summary ||
+                'От этих цифр считаются веса во всех упражнениях. Впиши максимумы или рабочие подходы в базовых.'}
+            </span>
+          </span>
+          <span className="section-action">
+            {open ? 'Свернуть' : summary ? 'Изменить' : 'Заполнить'}
+          </span>
+        </button>
+        {open && (
+          <div id="section-strength" className="section-panel section-panel-plain">
+            <StrengthForm card={card} onDone={onClose} />
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

@@ -13,7 +13,7 @@ import { PlateMark } from '../components/Sleeve';
 import { ErrorState, Loading } from '../components/States';
 import type { PlateId } from '../card/plates';
 import { formatDate, num, plural, todayIso } from '../format';
-import { BaselineForm } from '../plan/BaselineForm';
+import { StrengthForm } from '../plan/StrengthForm';
 import { Calendar, summarize } from '../plan/Calendar';
 import { addDays, isoWeekday, shortDay } from '../plan/dates';
 import { useCard, useGeneratePlan, usePlan, useReschedule } from '../plan/usePlan';
@@ -188,23 +188,23 @@ function Builder({ kind, plan, card, onDone, onCancel }: BuilderProps) {
         <>
           <section className="plan-step" aria-labelledby="weights-heading">
             <h2 id="weights-heading" className="group-title">
-              Стартовые веса <span className="legend-note">необязательно</span>
+              Максимумы и рабочие веса
             </h2>
             {baselineOpen ? (
-              <BaselineForm card={card} onDone={() => setBaselineOpen(false)} />
+              <StrengthForm card={card} onDone={() => setBaselineOpen(false)} />
             ) : (
               <>
                 <p className="plan-hint">
                   {Object.keys(card.strength?.lifts ?? {}).length > 0
-                    ? `Записано упражнений: ${Object.keys(card.strength?.lifts ?? {}).length}. По ним в плане будут килограммы.`
-                    : 'Если знаешь свои веса в базовых — впиши, и в плане сразу будут килограммы. Если нет — первая неделя будет на подбор веса.'}
+                    ? `Записано упражнений: ${Object.keys(card.strength?.lifts ?? {}).length}. От них тренер посчитает веса во всех упражнениях со штангой и гантелями.`
+                    : 'Впиши максимумы или рабочие подходы в базовых — от них тренер посчитает веса во всех упражнениях. Если цифры есть в анкете, ИИ возьмёт их сам.'}
                 </p>
                 <button
                   type="button"
                   className="button button-small button-secondary"
                   onClick={() => setBaselineOpen(true)}
                 >
-                  Указать веса
+                  Открыть
                 </button>
               </>
             )}
@@ -312,6 +312,7 @@ interface ViewProps {
 /** Блин недели: нагрузка растёт — блин тяжелеет, разгрузка — лёгкий белый. */
 function weekPlate(week: number, phase: SessionView['phase']): PlateId | null {
   if (phase === 'deload') return 'w5';
+  if (phase === 'test') return 'r25';
   if (phase === 'after_block') return null;
   return (['g10', 'y15', 'b20', 'r25', 'r25'] as const)[Math.min(week, 5) - 1] ?? 'r25';
 }
@@ -319,6 +320,7 @@ function weekPlate(week: number, phase: SessionView['phase']): PlateId | null {
 const PHASE_TEXT: Record<SessionView['phase'], string> = {
   accumulation: 'нагрузка растёт',
   deload: 'разгрузка',
+  test: 'проходка',
   after_block: 'блок закончился',
 };
 
@@ -355,11 +357,24 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
           : 'Собран по правилам.'}
       </p>
 
+      {block.staleSections.length > 0 && (
+        <div className="notice notice-stop" role="status">
+          <p>
+            После построения плана ты поменял в карточке:{' '}
+            {block.staleSections.map((s) => SECTION_TITLES[s] ?? s).join(', ')}. Перестрой, чтобы
+            тренер это учёл. Дни останутся те же.
+          </p>
+          <button type="button" className="button button-small" onClick={onRebuild}>
+            Перестроить
+          </button>
+        </div>
+      )}
       {block.generationNote && (
         <p className="notice notice-warn" role="status">
           {block.generationNote}
         </p>
       )}
+      {block.factsNote && <p className="notice">{block.factsNote}</p>}
 
       <blockquote className="coach-note">
         <p>{block.coachNote}</p>
@@ -378,7 +393,7 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
           className="button button-small button-secondary"
           onClick={() => setBaselineOpen((o) => !o)}
         >
-          Стартовые веса
+          Максимумы
         </button>
         <button type="button" className="button button-small button-secondary" onClick={onRebuild}>
           Перестроить
@@ -386,8 +401,8 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
       </div>
 
       {baselineOpen && (
-        <section className="plan-step" aria-label="Стартовые веса">
-          <BaselineForm card={card} onDone={() => setBaselineOpen(false)} />
+        <section className="plan-step" aria-label="Максимумы и рабочие веса">
+          <StrengthForm card={card} onDone={() => setBaselineOpen(false)} />
         </section>
       )}
 
@@ -425,7 +440,7 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
             <dt>Подбери вес</dt>
             <dd>
               Максимума пока нет. Возьми вес, с которым останется указанный запас, и запиши подходы
-              — дальше тренер посчитает сам. Или укажи стартовые веса.
+              — дальше тренер посчитает сам. Или укажи максимумы.
             </dd>
           </div>
         )}
@@ -516,6 +531,7 @@ function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps)
                     {x.sets} × {x.repsMin === x.repsMax ? x.repsMin : `${x.repsMin}–${x.repsMax}`},
                     запас {x.rir}
                   </span>
+                  {loadHint(x.load) && <span className="exercise-hint">{loadHint(x.load)}</span>}
                   {x.note && <span className="exercise-note">{x.note}</span>}
                 </li>
               ))}
@@ -527,8 +543,49 @@ function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps)
   );
 }
 
+const ANCHOR_FROM: Record<string, string> = {
+  'barbell-back-squat': 'приседа',
+  deadlift: 'становой',
+  'bench-press': 'жима лёжа',
+  'overhead-press': 'жима стоя',
+  'barbell-row': 'тяги в наклоне',
+};
+
 function loadText(load: LoadView): string {
-  if (load.kind === 'kg') return `${num(load.kg)} кг`;
+  if (load.kind === 'kg') {
+    const approx = load.basis === 'ratio' || load.basis === 'bodyweight' ? '≈ ' : '';
+    return `${approx}${load.perHand ? 'по ' : ''}${num(load.kg)} кг`;
+  }
   if (load.kind === 'bodyweight') return 'свой вес';
   return 'подбери вес';
 }
+
+/** Откуда вес — одной строкой под упражнением. */
+function loadHint(load: LoadView): string {
+  if (load.kind === 'calibrate') {
+    return load.reason === 'stack'
+      ? 'Блок или тренажёр: стеки везде разные, подбери по запасу'
+      : 'Нет данных: подбери по запасу';
+  }
+  if (load.kind !== 'kg') return '';
+  if (load.basis === 'bodyweight')
+    return 'Оценка по весу тела: впиши максимумы, и вес станет точным';
+  if (load.basis === 'ratio') {
+    return `От ${ANCHOR_FROM[load.fromSlug ?? ''] ?? 'базового движения'}${load.perHand ? ', на одну гантель' : ''}`;
+  }
+  if (load.basis === 'target') return 'Попытка проходки';
+  return load.perHand ? 'На одну гантель' : '';
+}
+
+const SECTION_TITLES: Record<string, string> = {
+  goals: 'цели',
+  basics: 'основное',
+  availability: 'время',
+  equipment: 'оборудование',
+  limitations: 'травмы и ограничения',
+  experience: 'опыт',
+  activity: 'активность',
+  nutrition: 'питание',
+  recovery: 'восстановление',
+  weakPoints: 'слабые места',
+};

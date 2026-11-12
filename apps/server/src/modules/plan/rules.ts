@@ -68,7 +68,97 @@ interface SplitDef {
   sessions: Array<{ key: string; title: string; zone: Zone; slots: Slot[] }>;
 }
 
-function splitFor(perWeek: number): SplitDef {
+const STRENGTH_GOALS: readonly Goal[] = ['strength', 'strength_hypertrophy'];
+
+/** Силовая цель: каждое движение троеборья тяжело в свой день, вариации и подсобка вокруг. */
+function strengthSplit(perWeek: number): SplitDef | null {
+  if (perWeek === 2) {
+    return {
+      name: 'Присед и жим / становая и жим стоя',
+      sessions: [
+        {
+          key: 'A',
+          title: 'Присед и жим',
+          zone: 'full',
+          slots: [
+            main('squat'),
+            main('horizontal_push'),
+            acc('horizontal_pull'),
+            iso('hamstrings'),
+            iso('triceps'),
+            acc('core'),
+          ],
+        },
+        {
+          key: 'B',
+          title: 'Становая и жим стоя',
+          zone: 'full',
+          slots: [
+            main('hinge'),
+            main('vertical_push'),
+            main('vertical_pull'),
+            acc('single_leg'),
+            iso('biceps'),
+            iso('shoulders'),
+          ],
+        },
+      ],
+    };
+  }
+  if (perWeek === 3) {
+    return {
+      name: 'Присед / жим / становая',
+      sessions: [
+        {
+          key: 'A',
+          title: 'День приседа',
+          zone: 'full',
+          slots: [
+            main('squat'),
+            acc('horizontal_push', 1),
+            acc('single_leg'),
+            iso('quads'),
+            iso('hamstrings'),
+            acc('core'),
+          ],
+        },
+        {
+          key: 'B',
+          title: 'День жима',
+          zone: 'upper',
+          slots: [
+            main('horizontal_push'),
+            main('vertical_pull'),
+            acc('vertical_push'),
+            acc('horizontal_pull'),
+            iso('triceps'),
+            iso('shoulders'),
+          ],
+        },
+        {
+          key: 'C',
+          title: 'День становой',
+          zone: 'full',
+          slots: [
+            main('hinge'),
+            acc('squat', 1),
+            acc('horizontal_pull', 1),
+            iso('hamstrings', 1),
+            iso('biceps'),
+            acc('core', 1),
+          ],
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+function splitFor(perWeek: number, goal: Goal): SplitDef {
+  if (STRENGTH_GOALS.includes(goal)) {
+    const split = strengthSplit(perWeek);
+    if (split) return split;
+  }
   if (perWeek <= 2) {
     return {
       name: 'Фулбади A/B',
@@ -269,7 +359,7 @@ export function buildRulesTemplate(
   const scheme = SCHEMES[goal];
   const priority = new Set<string>(card.goals?.priorityMuscles ?? []);
   const minutes = card.availability?.sessionMinutes ?? 75;
-  const split = splitFor(schedule.perWeek);
+  const split = splitFor(schedule.perWeek, goal);
   const usedInBlock = new Set<string>();
 
   const pick = (slot: Slot, usedInSession: Set<string>): Exercise | undefined => {
@@ -355,8 +445,8 @@ export function buildRulesTemplate(
     rotation: usable.map((s) => s.key),
     rationale:
       `${split.name}: ${schedule.perWeek} ${schedule.perWeek === 1 ? 'тренировка' : schedule.perWeek < 5 ? 'тренировки' : 'тренировок'} в неделю, ` +
-      `каждая мышца — не реже раза в неделю. Цель — ${GOAL_TEXT[goal]}: базовые ${mMin}–${mMax} повторов, подсобка ${aMin}–${aMax}. ` +
-      `4 недели нагрузка растёт: запас повторов уходит с 3 до 1${goal === 'fat_loss' ? '' : ', на 3–4 неделе добавляется подход'}; 5-я неделя — разгрузка.` +
+      `${split.name.includes('/') && STRENGTH_GOALS.includes(goal) ? 'каждое движение троеборья тяжело в свой день, вариации и подсобка вокруг' : 'каждая мышца — не реже раза в неделю'}. Цель — ${GOAL_TEXT[goal]}: базовые ${mMin}–${mMax} повторов, подсобка ${aMin}–${aMax}. ` +
+      `4 недели нагрузка растёт: запас повторов уходит с 3 до 1${goal === 'fat_loss' ? '' : ', на 3–4 неделе добавляется подход'}; 5-я неделя — разгрузка, после неё проходка.` +
       (priority.size > 0 ? ' Приоритетные мышцы получают изоляцию и лишний подход.' : ''),
     coachNote: 'Записывай каждый подход и честно оценивай запас: по нему я поднимаю веса.',
   };

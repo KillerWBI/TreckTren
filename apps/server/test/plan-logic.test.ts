@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { PRIMARY_GOALS, type AthleteCard, type BlockTemplate } from '@trektren/shared';
+import {
+  PRIMARY_GOALS,
+  resolveOneRm,
+  type AthleteCard,
+  type BlockTemplate,
+} from '@trektren/shared';
 import { addDays } from '../src/dates.js';
 import { loadExercises, type Exercise } from '../src/modules/exercises/repo.js';
 import { filterAvailable } from '../src/modules/plan/availability.js';
@@ -8,6 +13,8 @@ import { loadFor } from '../src/modules/plan/loads.js';
 import { normalizeTemplate } from '../src/modules/plan/normalize.js';
 import { buildRulesTemplate } from '../src/modules/plan/rules.js';
 import { describeSchedule } from '../src/modules/plan/schedule.js';
+import { estimateMaxes } from '../src/modules/strength/estimate.js';
+import { mergeLift } from '../src/modules/strength/service.js';
 
 // 2026-11-16 — понедельник.
 const MON = '2026-11-16';
@@ -95,6 +102,22 @@ describe('план по правилам', () => {
     expect(rulesFor(card, all, week([0, 2, 4])).split).toMatch(/Фулбади/);
     expect(rulesFor(card, all, week([0, 1, 3, 4])).split).toMatch(/Верх/);
     expect(rulesFor(card, all, week([0, 1, 2, 3, 4])).split).toMatch(/Толкай/);
+  });
+
+  it('силовая цель: при 3 днях — день приседа, жима и становой, не фулбади', async () => {
+    const { all } = await base();
+    const strong = { ...card, goals: { primary: 'strength' as const } };
+    const t = rulesFor(strong, all, week([1, 3, 6]));
+    expect(t.split).toBe('Присед / жим / становая');
+    expect(t.sessions.map((s) => s.exercises[0]!.slug)).toEqual([
+      'barbell-back-squat',
+      'bench-press',
+      'deadlift',
+    ]);
+    expect(
+      rulesFor({ ...strong, availability: { sessionsPerWeek: 2 } }, all, week([0, 3])).sessions[1]!
+        .exercises[0]!.slug,
+    ).toBe('deadlift');
   });
 
   it('тренировка укладывается в заданное время', async () => {
@@ -240,25 +263,185 @@ describe('раскладка по датам', () => {
 
 describe('рабочие веса', () => {
   const planned = { slug: 'bench-press', sets: 4, repsMin: 3, repsMax: 5, rir: 2, loadFactor: 1 };
+  const own = (oneRmKg: number) => ({ oneRmKg, basis: 'own' as const });
 
   it('по 1ПМ: обратная формула Эпли, вниз до шага снаряда', async () => {
     const { map } = await base();
     // 100 / (1 + (4 + 2) / 30) = 83,3 → 82,5
-    expect(loadFor(planned, map.get('bench-press'), 100)).toEqual({
+    expect(loadFor(planned, map.get('bench-press'), own(100))).toEqual({
       kind: 'kg',
       kg: 82.5,
       oneRmKg: 100,
+      basis: 'own',
+      perHand: false,
     });
-    expect(loadFor({ ...planned, loadFactor: 0.9 }, map.get('bench-press'), 100)).toMatchObject({
+    expect(
+      loadFor({ ...planned, loadFactor: 0.9 }, map.get('bench-press'), own(100)),
+    ).toMatchObject({
       kg: 75,
     });
   });
 
-  it('без 1ПМ — подбор веса, свой вес — без килограммов', async () => {
+  it('без данных — подбор, свой вес — без килограммов, блок — подбор на месте', async () => {
     const { map } = await base();
-    expect(loadFor(planned, map.get('bench-press'), undefined)).toEqual({ kind: 'calibrate' });
+    expect(loadFor(planned, map.get('bench-press'), undefined)).toEqual({
+      kind: 'calibrate',
+      reason: 'no_data',
+    });
     expect(loadFor({ ...planned, slug: 'push-up' }, map.get('push-up'), undefined)).toEqual({
       kind: 'bodyweight',
+    });
+    expect(
+      loadFor({ ...planned, slug: 'lat-pulldown' }, map.get('lat-pulldown'), {
+        oneRmKg: 80,
+        basis: 'ratio',
+      }),
+    ).toEqual({ kind: 'calibrate', reason: 'stack' });
+  });
+
+  it('гантели — на руку и не тяжелее, чем есть в зале; штанга — не легче грифа', async () => {
+    const { map } = await base();
+    const db = {
+      slug: 'incline-dumbbell-press',
+      sets: 3,
+      repsMin: 8,
+      repsMax: 12,
+      rir: 2,
+      loadFactor: 1,
+    };
+    const load = loadFor(db, map.get('incline-dumbbell-press'), {
+      oneRmKg: 37,
+      basis: 'ratio',
+      fromSlug: 'bench-press',
+    });
+    expect(load).toMatchObject({
+      kind: 'kg',
+      perHand: true,
+      basis: 'ratio',
+      fromSlug: 'bench-press',
+    });
+    expect(
+      loadFor(
+        db,
+        map.get('incline-dumbbell-press'),
+        { oneRmKg: 100, basis: 'own' },
+        { dumbbellMaxKg: 30 },
+      ),
+    ).toMatchObject({ kg: 30 });
+    expect(loadFor(planned, map.get('bench-press'), own(15))).toMatchObject({ kg: 20 });
+  });
+
+  it('проходка — вес попытки как есть', async () => {
+    const { map } = await base();
+    expect(
+      loadFor({ ...planned, targetKg: 127.5 }, map.get('bench-press'), own(120)),
+    ).toMatchObject({
+      kind: 'kg',
+      kg: 127.5,
+      basis: 'target',
+    });
+  });
+});
+
+describe('максимумы для всех упражнений', () => {
+  const lift = (oneRmKg: number) => ({ oneRmKg, estimated: false, updatedAt: '2026-11-12' });
+
+  it('свои — как есть, остальное через опорные движения', async () => {
+    const { all } = await base();
+    const maxes = estimateMaxes(
+      {
+        ...card,
+        strength: {
+          lifts: { 'barbell-back-squat': lift(120), 'bench-press': lift(100), deadlift: lift(170) },
+        },
+      },
+      all,
+    );
+    expect(maxes.get('barbell-back-squat')).toEqual({ oneRmKg: 120, basis: 'own' });
+    expect(maxes.get('front-squat')).toEqual({
+      oneRmKg: 98.4,
+      basis: 'ratio',
+      fromSlug: 'barbell-back-squat',
+    });
+    expect(maxes.get('romanian-deadlift')).toMatchObject({ oneRmKg: 110.5, fromSlug: 'deadlift' });
+    // Жима стоя нет — от жима лёжа, а гантели сидя — от него.
+    expect(maxes.get('overhead-press')).toEqual({
+      oneRmKg: 62,
+      basis: 'ratio',
+      fromSlug: 'bench-press',
+    });
+    expect(maxes.get('seated-dumbbell-press')).toMatchObject({
+      basis: 'ratio',
+      fromSlug: 'overhead-press',
+    });
+    expect(maxes.has('lat-pulldown')).toBe(false);
+  });
+
+  it('совсем без силовых — оценка по весу тела и стажу', async () => {
+    const { all } = await base();
+    const maxes = estimateMaxes(
+      { ...card, basics: { sex: 'male', weightKg: 80 }, experience: { trainingYears: 2 } },
+      all,
+    );
+    expect(maxes.get('barbell-back-squat')).toEqual({ oneRmKg: 112, basis: 'bodyweight' });
+    expect(maxes.get('bench-press')).toEqual({ oneRmKg: 80, basis: 'bodyweight' });
+    expect(maxes.get('front-squat')?.basis).toBe('bodyweight');
+  });
+});
+
+describe('силовые: максимум и рабочий подход', () => {
+  it('реальный максимум важнее расчёта по рабочему подходу', () => {
+    expect(resolveOneRm({ testedKg: 100, working: { weightKg: 80, reps: 10, rir: 0 } })).toEqual({
+      oneRmKg: 100,
+      estimated: false,
+    });
+    expect(resolveOneRm({ working: { weightKg: 100, reps: 5, rir: 1 } })).toEqual({
+      oneRmKg: 120,
+      estimated: true,
+    });
+    // Подход свежее максимума и тяжелее — человек стал сильнее.
+    expect(
+      resolveOneRm({
+        testedKg: 100,
+        testedAt: '2026-09-01',
+        working: { weightKg: 100, reps: 3, rir: 1 },
+        workingAt: '2026-11-01',
+      }),
+    ).toEqual({ oneRmKg: 113.3, estimated: true });
+    expect(resolveOneRm({})).toBeNull();
+  });
+
+  it('правка меняет только пришедшее, null удаляет', () => {
+    const current = {
+      oneRmKg: 106.7,
+      estimated: true,
+      updatedAt: '2026-11-10',
+      working: { weightKg: 80, reps: 10, rir: 0 },
+      workingAt: '2026-11-10',
+    };
+    const withMax = mergeLift(current, { testedKg: 100 }, '2026-11-12', 'user')!;
+    expect(withMax).toMatchObject({
+      oneRmKg: 100,
+      estimated: false,
+      testedKg: 100,
+      testedAt: '2026-11-12',
+    });
+    expect(withMax.working).toEqual(current.working);
+    const noMax = mergeLift(withMax, { testedKg: null }, '2026-11-12', 'user')!;
+    expect(noMax).toMatchObject({ oneRmKg: 106.7, estimated: true });
+    expect(noMax.testedKg).toBeUndefined();
+    expect(mergeLift(noMax, { working: null }, '2026-11-12', 'user')).toBeNull();
+    // Старая запись без подробностей остаётся как была.
+    expect(
+      mergeLift(
+        { oneRmKg: 90, estimated: true, updatedAt: '2026-11-01' },
+        {},
+        '2026-11-12',
+        'user',
+      ),
+    ).toMatchObject({
+      oneRmKg: 90,
+      updatedAt: '2026-11-01',
     });
   });
 });

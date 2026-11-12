@@ -1,4 +1,10 @@
-import { blockTemplateSchema, type BlockTemplate } from '@trektren/shared';
+import {
+  blockTemplateSchema,
+  textLiftSchema,
+  textTargetSchema,
+  type BlockTemplate,
+  type TextFacts,
+} from '@trektren/shared';
 import type { Exercise } from '../exercises/repo.js';
 
 export type NormalizeResult =
@@ -10,6 +16,13 @@ export type NormalizeResult =
  * грубые ошибки возвращает — их отправляем модели на исправление.
  */
 export function normalizeTemplate(raw: unknown, available: Exercise[]): NormalizeResult {
+  // Цифры из текста проверяем поштучно: одна странная цифра не должна валить весь план.
+  let facts: TextFacts | undefined;
+  if (raw && typeof raw === 'object' && 'fromText' in raw) {
+    const { fromText, ...rest } = raw as Record<string, unknown>;
+    facts = cleanFacts(fromText);
+    raw = rest;
+  }
   const parsed = blockTemplateSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -55,5 +68,23 @@ export function normalizeTemplate(raw: unknown, available: Exercise[]): Normaliz
   while (t.weeks.length < t.accumulationWeeks) t.weeks.push({ ...t.weeks[t.weeks.length - 1]! });
   t.weeks = t.weeks.slice(0, t.accumulationWeeks);
 
+  if (facts) t.fromText = facts;
   return errors.length > 0 ? { ok: false, errors } : { ok: true, template: t, warnings };
+}
+
+function cleanFacts(value: unknown): TextFacts | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as { lifts?: unknown; targets?: unknown };
+  const pick = <T>(
+    list: unknown,
+    schema: { safeParse: (x: unknown) => { success: boolean; data?: T } },
+  ) =>
+    (Array.isArray(list) ? list : []).flatMap((item) => {
+      const r = schema.safeParse(item);
+      return r.success ? [r.data as T] : [];
+    });
+  const lifts = pick(v.lifts, textLiftSchema).slice(0, 20);
+  const targets = pick(v.targets, textTargetSchema).slice(0, 10);
+  if (lifts.length === 0 && targets.length === 0) return undefined;
+  return { lifts, targets };
 }

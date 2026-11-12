@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workingSetSchema } from './athlete-card.js';
+import type { WorkingSet } from './athlete-card.js';
 
 const isoDate = z.iso.date();
 export const exerciseSlugSchema = z.string().regex(/^[a-z0-9-]{2,64}$/);
@@ -27,6 +29,27 @@ export const weekRuleSchema = z.object({
   extraSets: z.number().int().min(0).max(2),
 });
 
+/**
+ * Цифры, которые человек написал текстом (заметки, слабые места, комментарий к плану),
+ * а не в разделе «Силовые». ИИ их находит, код записывает в карточку.
+ */
+export const textLiftSchema = z.object({
+  slug: z.string().min(1).max(64),
+  kind: z.enum(['max', 'working']),
+  weightKg: z.number().min(1).max(600),
+  reps: z.number().int().min(1).max(20).optional(),
+  rir: z.number().int().min(0).max(5).optional(),
+});
+export const textTargetSchema = z.object({
+  slug: z.string().min(1).max(64),
+  weightKg: z.number().min(1).max(600),
+});
+export const textFactsSchema = z.object({
+  lifts: z.array(textLiftSchema).max(20).optional(),
+  targets: z.array(textTargetSchema).max(10).optional(),
+});
+export type TextFacts = z.infer<typeof textFactsSchema>;
+
 export const blockTemplateSchema = z.object({
   split: z.string().min(1).max(80),
   accumulationWeeks: z.number().int().min(3).max(5),
@@ -35,6 +58,7 @@ export const blockTemplateSchema = z.object({
   rotation: z.array(z.string()).min(1).max(12),
   rationale: z.string().min(1).max(1500),
   coachNote: z.string().min(1).max(500),
+  fromText: textFactsSchema.optional(),
 });
 
 export type TemplateExercise = z.infer<typeof templateExerciseSchema>;
@@ -43,7 +67,7 @@ export type BlockTemplate = z.infer<typeof blockTemplateSchema>;
 
 export const PLAN_SOURCES = ['ai', 'rules'] as const;
 export type PlanSource = (typeof PLAN_SOURCES)[number];
-export type SessionPhase = 'accumulation' | 'deload' | 'after_block';
+export type SessionPhase = 'accumulation' | 'deload' | 'test' | 'after_block';
 
 /** Предписание на конкретную дату: подходы, повторы, запас. Килограммы считаются при чтении по актуальным максимумам. */
 export interface PlannedExercise {
@@ -54,6 +78,8 @@ export interface PlannedExercise {
   rir: number;
   /** Множитель к расчётному весу: 0,9 на разгрузке и после долгого перерыва. */
   loadFactor: number;
+  /** Вес попытки на проходке: ставится как есть, без расчёта. */
+  targetKg?: number;
   note?: string;
 }
 
@@ -69,8 +95,26 @@ export interface PlannedSession {
   exercises: PlannedExercise[];
 }
 
+/**
+ * Откуда вес: own — от максимума этого упражнения, ratio — от максимума опорного движения
+ * через соотношение, bodyweight — по весу тела и стажу (данных нет вообще), target — вес проходки.
+ */
+export type LoadBasis = 'own' | 'ratio' | 'bodyweight' | 'target';
+
 export type LoadView =
-  { kind: 'kg'; kg: number; oneRmKg: number } | { kind: 'calibrate' } | { kind: 'bodyweight' };
+  | {
+      kind: 'kg';
+      kg: number;
+      oneRmKg: number;
+      basis: LoadBasis;
+      /** Вес одной гантели. */
+      perHand: boolean;
+      /** Опорное движение, от которого посчитан вес. */
+      fromSlug?: string;
+    }
+  /** stack — блок или тренажёр, no_data — не от чего считать. */
+  | { kind: 'calibrate'; reason: 'stack' | 'no_data' }
+  | { kind: 'bodyweight' };
 
 export interface SessionExerciseView extends PlannedExercise {
   name: string;
@@ -98,6 +142,10 @@ export interface BlockView {
   generationNote: string | null;
   /** Упражнения, убранные из-за травм, запретов и оборудования. */
   excluded: string[];
+  /** Что ИИ взял из текста анкеты и комментария и записал в «Силовые». */
+  factsNote: string | null;
+  /** Разделы карточки, изменённые после построения плана: план стоит перестроить. */
+  staleSections: string[];
   createdAt: string;
 }
 
@@ -120,19 +168,49 @@ export type GeneratePlanRequest = z.infer<typeof generatePlanRequestSchema>;
 
 export const scheduleRequestSchema = z.strictObject({ dates: datesSchema });
 
-export const baselineRequestSchema = z.strictObject({
+/**
+ * Правка раздела «Силовые». По каждому упражнению — максимум на 1 раз и/или рабочий подход.
+ * null удаляет значение, отсутствие поля — не трогает.
+ */
+export const strengthUpdateSchema = z.strictObject({
   lifts: z
     .array(
       z.strictObject({
         slug: exerciseSlugSchema,
-        weightKg: z.number().min(1).max(500),
-        reps: z.number().int().min(1).max(12),
+        testedKg: z.number().min(1).max(600).nullable().optional(),
+        working: workingSetSchema.nullable().optional(),
       }),
     )
-    .min(1)
-    .max(10),
+    .max(40)
+    .default([]),
+  targets: z.record(exerciseSlugSchema, z.number().min(1).max(600).nullable()).optional(),
 });
-export type BaselineRequest = z.infer<typeof baselineRequestSchema>;
+export type StrengthUpdate = z.infer<typeof strengthUpdateSchema>;
+
+/**
+ * Какой максимум брать: реально сделанный на 1 раз. Расчёт по рабочему подходу —
+ * если максимума нет или подход свежее и показывает больше (человек стал сильнее).
+ */
+export function resolveOneRm(record: {
+  testedKg?: number | undefined;
+  testedAt?: string | undefined;
+  working?: WorkingSet | undefined;
+  workingAt?: string | undefined;
+}): { oneRmKg: number; estimated: boolean } | null {
+  const fromWorking = record.working
+    ? round1(epleyOneRm(record.working.weightKg, record.working.reps + record.working.rir))
+    : null;
+  if (record.testedKg) {
+    const newer = record.workingAt && record.testedAt ? record.workingAt > record.testedAt : false;
+    if (fromWorking && newer && fromWorking > record.testedKg) {
+      return { oneRmKg: fromWorking, estimated: true };
+    }
+    return { oneRmKg: record.testedKg, estimated: false };
+  }
+  return fromWorking ? { oneRmKg: fromWorking, estimated: true } : null;
+}
+
+export const round1 = (n: number) => Math.round(n * 10) / 10;
 
 export interface ExerciseView {
   slug: string;
@@ -146,6 +224,12 @@ export interface ExerciseView {
   baseline: boolean;
   bodyweight: boolean;
   weightStepKg: number | null;
+  /** Опорное движение и соотношение максимумов: вес ≈ refRatio × максимум refSlug. */
+  refSlug: string | null;
+  refRatio: number | null;
+  perHand: boolean;
+  /** Блок или тренажёр: вес подбирается на месте. */
+  stack: boolean;
 }
 
 /** Расчётный 1ПМ по Эпли. */

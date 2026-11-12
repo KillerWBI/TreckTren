@@ -1,9 +1,5 @@
 import { Router } from 'express';
-import {
-  baselineRequestSchema,
-  generatePlanRequestSchema,
-  scheduleRequestSchema,
-} from '@trektren/shared';
+import { generatePlanRequestSchema, scheduleRequestSchema } from '@trektren/shared';
 import type { AiProvider } from '../../ai/client.js';
 import { requireAuth, userIdOf } from '../../middleware/auth.js';
 import { parseBody } from '../../validate.js';
@@ -29,11 +25,6 @@ export function createPlanRouter(ai: AiProvider) {
   router.put('/plan/schedule', requireAuth, async (req, res) => {
     const body = parseBody(scheduleRequestSchema, req.body);
     res.json(await plans.updateSchedule(userIdOf(req), body.dates, ai));
-  });
-
-  router.post('/strength/baseline', requireAuth, async (req, res) => {
-    const body = parseBody(baselineRequestSchema, req.body);
-    res.json(await plans.saveBaseline(userIdOf(req), body));
   });
 
   return router;

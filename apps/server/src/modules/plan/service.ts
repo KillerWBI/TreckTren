@@ -1,11 +1,9 @@
 import type { PoolClient } from 'pg';
 import {
   blockTemplateSchema,
-  epleyOneRm,
   isSectionFilled,
   REQUIRED_CARD_SECTIONS,
   type AthleteCard,
-  type BaselineRequest,
   type BlockTemplate,
   type BlockView,
   type GeneratePlanRequest,
@@ -13,14 +11,17 @@ import {
   type PlanResponse,
   type PlanSource,
   type SessionView,
+  type TextFacts,
 } from '@trektren/shared';
 import { AiError, type AiProvider } from '../../ai/client.js';
 import { config } from '../../config.js';
-import { addDays, todayIn, uniqueSorted } from '../../dates.js';
+import { addDays, uniqueSorted } from '../../dates.js';
 import { pool, withTransaction } from '../../db.js';
 import { AppError, notFound } from '../../errors.js';
-import { applyCardPatch, getCard } from '../card/service.js';
+import { getCard } from '../card/service.js';
 import { loadExercises, type Exercise } from '../exercises/repo.js';
+import { estimateMaxes, type MaxEstimate } from '../strength/estimate.js';
+import { userToday, writeStrength } from '../strength/service.js';
 import { filterAvailable } from './availability.js';
 import { layoutSessions, type LaidOutSession } from './layout.js';
 import { loadFor } from './loads.js';
@@ -47,6 +48,7 @@ interface StoredPlan {
   comment: string | null;
   generationNote: string | null;
   excluded: string[];
+  factsNote?: string | null;
 }
 
 interface BlockRow {
@@ -69,15 +71,19 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
   const block = await activeBlock(pool, userId);
   if (!block) return { block: null, sessions: [], ai: aiStatus };
 
-  const [{ rows }, { card }, exercises] = await Promise.all([
+  const [{ rows }, { card }, all, staleSections] = await Promise.all([
     pool.query<SessionRow>(
       'SELECT id, date, status, planned_json FROM scheduled_sessions WHERE block_id = $1 ORDER BY date',
       [block.id],
     ),
     getCard(userId),
-    exerciseMap(),
+    loadExercises(),
+    changedSince(userId, block.created_at),
   ]);
-  const maxes = card.strength?.lifts ?? {};
+  const exercises = new Map(all.map((e) => [e.slug, e]));
+  // Веса считаются при каждом чтении от текущей карточки: поменял максимум — план уже другой.
+  const maxes = estimateMaxes(card, all);
+  const dumbbellMaxKg = card.equipment?.dumbbellMaxKg;
 
   const sessions: SessionView[] = rows.map((r) => ({
     id: r.id,
@@ -89,11 +95,22 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
       return {
         ...x,
         name: exercise?.name ?? x.slug,
-        load: loadFor(x, exercise, maxes[x.slug]?.oneRmKg),
+        load: loadFor(x, exercise, maxes.get(x.slug), { dumbbellMaxKg }),
       };
     }),
   }));
-  return { block: toBlockView(block), sessions, ai: aiStatus };
+  return { block: toBlockView(block, staleSections), sessions, ai: aiStatus };
+}
+
+/** Разделы карточки, которые человек поменял после построения плана. Силовые не в счёт: веса пересчитываются сами. */
+async function changedSince(userId: string, since: Date): Promise<string[]> {
+  const { rows } = await pool.query<{ patch: Record<string, unknown> }>(
+    `SELECT patch FROM card_versions WHERE user_id = $1 AND created_at > $2 AND source = 'user'`,
+    [userId, since],
+  );
+  const sections = new Set(rows.flatMap((r) => Object.keys(r.patch)));
+  sections.delete('strength');
+  return [...sections];
 }
 
 export async function generatePlan(
@@ -103,7 +120,7 @@ export async function generatePlan(
 ): Promise<PlanResponse> {
   const today = await userToday(userId);
   const dates = checkDates(request.dates, today);
-  const { card } = await getCard(userId);
+  let { card } = await getCard(userId);
 
   const missing = REQUIRED_CARD_SECTIONS.filter((s) => !isSectionFilled(card, s));
   if (missing.length > 0) {
@@ -141,7 +158,7 @@ export async function generatePlan(
           card,
           schedule,
           available,
-          knownMaxes: knownMaxes(card, available),
+          maxes: anchorMaxes(card, all),
           previous: previous?.plan_json.template,
           comment: comment ?? undefined,
         }),
@@ -163,6 +180,17 @@ export async function generatePlan(
     }
   }
   template ??= buildRulesTemplate(card, available, schedule);
+
+  // Цифры из текста анкеты и комментария — в «Силовые», чтобы дальше они были данными, а не догадкой.
+  let factsNote: string | null = null;
+  if (template.fromText) {
+    const applied = await applyTextFacts(userId, card, template.fromText, all);
+    if (applied) {
+      card = applied.card;
+      factsNote = applied.note;
+    }
+    delete template.fromText;
+  }
   if (source === 'rules' && comment && !generationNote) {
     generationNote =
       'Комментарий учтёт ИИ, когда он будет подключён: по правилам план строится без комментариев.';
@@ -177,6 +205,7 @@ export async function generatePlan(
     comment,
     generationNote,
     excluded: excluded.map((e) => e.name),
+    factsNote,
   };
 
   try {
@@ -246,29 +275,6 @@ export async function updateSchedule(
   return getPlan(userId, ai);
 }
 
-/** Стартовые веса: вес × повторы → расчётный 1ПМ в разделе «Силовые» карточки. */
-export async function saveBaseline(userId: string, request: BaselineRequest) {
-  const exercises = await exerciseMap();
-  const today = await userToday(userId);
-  const lifts: Record<string, { oneRmKg: number; estimated: boolean; updatedAt: string }> = {};
-  for (const lift of request.lifts) {
-    const exercise = exercises.get(lift.slug);
-    if (!exercise || exercise.bodyweight) {
-      throw new AppError(400, 'VALIDATION_ERROR', `Для «${lift.slug}» стартовый вес не задаётся`);
-    }
-    lifts[lift.slug] = {
-      oneRmKg: Math.round(epleyOneRm(lift.weightKg, lift.reps) * 10) / 10,
-      estimated: lift.reps > 1,
-      updatedAt: today,
-    };
-  }
-  return applyCardPatch(
-    userId,
-    { strength: { lifts } },
-    { source: 'user', reason: 'Стартовые веса', allowedSections: ['strength'] },
-  );
-}
-
 async function insertSessions(
   c: PoolClient,
   userId: string,
@@ -296,7 +302,7 @@ async function activeBlock(db: PoolClient | typeof pool, userId: string, lock = 
   return rows[0];
 }
 
-function toBlockView(b: BlockRow): BlockView {
+function toBlockView(b: BlockRow, staleSections: string[] = []): BlockView {
   const p = b.plan_json;
   return {
     id: b.id,
@@ -310,6 +316,8 @@ function toBlockView(b: BlockRow): BlockView {
     comment: p.comment,
     generationNote: p.generationNote,
     excluded: p.excluded,
+    factsNote: p.factsNote ?? null,
+    staleSections,
     createdAt: b.created_at.toISOString(),
   };
 }
@@ -330,26 +338,78 @@ function checkDates(input: string[], today: string): string[] {
   return dates;
 }
 
-async function userToday(userId: string): Promise<string> {
-  const { rows } = await pool.query<{ timezone: string }>(
-    'SELECT timezone FROM profiles WHERE user_id = $1',
-    [userId],
-  );
-  return todayIn(rows[0]?.timezone ?? 'Europe/Warsaw');
-}
-
 async function exerciseMap(): Promise<Map<string, Exercise>> {
   return new Map((await loadExercises()).map((e) => [e.slug, e]));
 }
 
-function knownMaxes(card: AthleteCard, available: Exercise[]): Record<string, number> {
-  const lifts = card.strength?.lifts ?? {};
-  const result: Record<string, number> = {};
-  for (const e of available) {
-    const lift = lifts[e.slug];
-    if (lift) result[e.slug] = lift.oneRmKg;
+/** Максимумы опорных движений для промпта: свои и посчитанные, с пометкой откуда. */
+function anchorMaxes(card: AthleteCard, all: Exercise[]): Array<{ slug: string } & MaxEstimate> {
+  const maxes = estimateMaxes(card, all);
+  return ['barbell-back-squat', 'deadlift', 'bench-press', 'overhead-press', 'barbell-row'].flatMap(
+    (slug) => {
+      const m = maxes.get(slug);
+      return m ? [{ slug, ...m }] : [];
+    },
+  );
+}
+
+/**
+ * Пишет в карточку цифры, которые ИИ нашёл в тексте. Только туда, где у человека ещё пусто:
+ * то, что он ввёл в «Силовые» сам, не перезаписываем.
+ */
+async function applyTextFacts(
+  userId: string,
+  card: AthleteCard,
+  facts: TextFacts,
+  all: Exercise[],
+) {
+  const names = new Map(all.map((e) => [e.slug, e]));
+  const lifts: Array<{
+    slug: string;
+    testedKg?: number;
+    working?: { weightKg: number; reps: number; rir: number };
+  }> = [];
+  const targets: Record<string, number> = {};
+  const notes: string[] = [];
+  const seen = new Set<string>();
+
+  for (const f of facts.lifts ?? []) {
+    const exercise = names.get(f.slug);
+    if (!exercise || exercise.bodyweight || seen.has(`${f.slug}:${f.kind}`)) continue;
+    seen.add(`${f.slug}:${f.kind}`);
+    const current = card.strength?.lifts?.[f.slug];
+    const reps = f.reps ?? 1;
+    if (f.kind === 'max' && reps === 1) {
+      if (current?.testedKg) continue;
+      lifts.push({ slug: f.slug, testedKg: f.weightKg });
+      notes.push(`${exercise.name.toLowerCase()} — максимум ${f.weightKg} кг`);
+    } else {
+      if (current?.working || current?.testedKg) continue;
+      const rir = f.rir ?? (f.kind === 'max' ? 0 : 2);
+      lifts.push({ slug: f.slug, working: { weightKg: f.weightKg, reps, rir } });
+      notes.push(`${exercise.name.toLowerCase()} — ${f.weightKg} кг × ${reps}`);
+    }
   }
-  return result;
+  for (const t of facts.targets ?? []) {
+    const exercise = names.get(t.slug);
+    if (!exercise || card.strength?.targets?.[t.slug] || targets[t.slug]) continue;
+    targets[t.slug] = t.weightKg;
+    notes.push(`цель: ${exercise.name.toLowerCase()} ${t.weightKg} кг`);
+  }
+  if (notes.length === 0) return null;
+
+  const result = await writeStrength(userId, card, {
+    lifts,
+    targets,
+    source: 'text',
+    cardSource: 'ai',
+    reason: 'ИИ взял цифры из анкеты и комментария',
+  });
+  if (!result) return null;
+  return {
+    card: result.card,
+    note: `Взял из твоих записей и сохранил в «Силовые»: ${notes.join('; ')}.`,
+  };
 }
 
 async function assertAiQuota(userId: string, today: string): Promise<void> {

@@ -22,6 +22,10 @@ interface ExerciseRow {
   weight_step_kg: number | null;
   min_rir: number;
   contraindications: string[];
+  ref_slug: string | null;
+  ref_ratio: number | null;
+  per_hand: boolean;
+  stack: boolean;
 }
 
 let cache: Promise<Exercise[]> | null = null;
@@ -31,7 +35,8 @@ export function loadExercises(): Promise<Exercise[]> {
   cache ??= pool
     .query<ExerciseRow>(
       `SELECT id, slug, name_ru, pattern, primary_muscles, secondary_muscles, requires, tier,
-              is_compound, baseline, bodyweight, weight_step_kg, min_rir, contraindications
+              is_compound, baseline, bodyweight, weight_step_kg, min_rir, contraindications,
+              ref_slug, ref_ratio, per_hand, stack
        FROM exercises WHERE user_id IS NULL ORDER BY pattern, tier, id`,
     )
     .then((r) => r.rows.map(toExercise))
@@ -55,6 +60,10 @@ export function toView(e: Exercise): ExerciseView {
     baseline: e.baseline,
     bodyweight: e.bodyweight,
     weightStepKg: e.weightStepKg,
+    refSlug: e.refSlug,
+    refRatio: e.refRatio,
+    perHand: e.perHand,
+    stack: e.stack,
   };
 }
 
@@ -72,6 +81,10 @@ function toExercise(r: ExerciseRow): Exercise {
     baseline: r.baseline,
     bodyweight: r.bodyweight,
     weightStepKg: r.weight_step_kg,
+    refSlug: r.ref_slug,
+    refRatio: r.ref_ratio,
+    perHand: r.per_hand,
+    stack: r.stack,
     minRir: r.min_rir,
     contraindications: r.contraindications,
   };

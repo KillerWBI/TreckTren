@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardResponse, ExerciseView, PlanResponse } from '@trektren/shared';
+import type { CardResponse, ExerciseView, PlanResponse, StrengthUpdate } from '@trektren/shared';
 import { api } from '../api/http';
 import { CARD_KEY, VERSIONS_KEY } from '../card/useSaveCard';
 
@@ -37,11 +37,11 @@ export function useReschedule() {
   });
 }
 
-export function useSaveBaseline() {
+export function useSaveStrength() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (lifts: Array<{ slug: string; weightKg: number; reps: number }>) =>
-      api<CardResponse>('/strength/baseline', { method: 'POST', json: { lifts } }),
+    mutationFn: (update: StrengthUpdate) =>
+      api<CardResponse>('/strength', { method: 'PUT', json: update }),
     onSuccess: (data) => {
       queryClient.setQueryData<CardResponse>(CARD_KEY, {
         card: data.card,

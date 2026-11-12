@@ -135,14 +135,33 @@ export const recoverySchema = z.strictObject({
   stress: z.enum(LEVELS).optional(),
 });
 
+/** Откуда взялись цифры: ввёл сам, ИИ нашёл в тексте анкеты, проходка, журнал тренировок. */
+export const LIFT_SOURCES = ['user', 'text', 'test', 'log'] as const;
+
+/** Типичный рабочий подход: вес × повторы и сколько ещё оставалось в запасе. */
+export const workingSetSchema = z.strictObject({
+  weightKg: z.number().min(1).max(600),
+  reps: z.number().int().min(1).max(20),
+  rir: z.number().int().min(0).max(5),
+});
+
 export const liftRecordSchema = z.strictObject({
+  /** Максимум, от которого считаются веса: проверенный, а если его нет — расчёт по рабочему подходу. */
   oneRmKg: z.number().min(0).max(600),
+  /** true — расчёт, false — человек реально сделал этот вес на 1 раз. */
   estimated: z.boolean(),
   updatedAt: isoDate,
+  testedKg: z.number().min(1).max(600).optional(),
+  testedAt: isoDate.optional(),
+  working: workingSetSchema.optional(),
+  workingAt: isoDate.optional(),
+  source: z.enum(LIFT_SOURCES).optional(),
 });
 
 export const strengthSchema = z.strictObject({
   lifts: z.record(exerciseSlug, liftRecordSchema).optional(),
+  /** Цели по максимумам, кг: { 'barbell-back-squat': 150 }. */
+  targets: z.record(exerciseSlug, z.number().min(1).max(600)).optional(),
 });
 
 export const weakPointSchema = z.strictObject({
@@ -184,6 +203,8 @@ export const athleteCardSchema = z.strictObject({
 });
 
 export type AthleteCard = z.infer<typeof athleteCardSchema>;
+export type WorkingSet = z.infer<typeof workingSetSchema>;
+export type LiftRecord = z.infer<typeof liftRecordSchema>;
 export type CardSection = keyof AthleteCard;
 
 export const CARD_SECTIONS = Object.keys(athleteCardSchema.shape) as CardSection[];
