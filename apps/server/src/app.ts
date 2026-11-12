@@ -5,20 +5,24 @@ import cors from 'cors';
 import express, { Router } from 'express';
 import helmet from 'helmet';
 import { enableRussianZodErrors, type AuthMode } from '@trektren/shared';
+import { aiFromConfig, type AiProvider } from './ai/client.js';
 import { config, isTest } from './config.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLog } from './middleware/request-log.js';
 import { createAuthRouter } from './modules/auth/routes.js';
 import { cardRouter } from './modules/card/routes.js';
+import { createPlanRouter } from './modules/plan/routes.js';
 
 enableRussianZodErrors();
 
 export interface AppOptions {
   /** По умолчанию — AUTH_MODE из окружения; тесты задают режим явно. */
   authMode?: AuthMode;
+  /** По умолчанию — провайдер из AI_* переменных; тесты подставляют свой. */
+  ai?: AiProvider;
 }
 
-export function createApp({ authMode = config.AUTH_MODE }: AppOptions = {}) {
+export function createApp({ authMode = config.AUTH_MODE, ai = aiFromConfig() }: AppOptions = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (config.TRUST_PROXY > 0) app.set('trust proxy', config.TRUST_PROXY);
@@ -40,6 +44,7 @@ export function createApp({ authMode = config.AUTH_MODE }: AppOptions = {}) {
   });
   api.use(createAuthRouter(authMode));
   api.use(cardRouter);
+  api.use(createPlanRouter(ai));
   api.use(notFoundHandler);
   app.use('/api/v1', api);
 

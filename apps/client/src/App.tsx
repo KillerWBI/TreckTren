@@ -5,6 +5,7 @@ import { AccountPage } from './pages/AccountPage';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
 import { CardPage } from './pages/CardPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { PlanPage } from './pages/PlanPage';
 
 function Splash() {
   return (
@@ -59,6 +60,7 @@ function Shell() {
         <NavLink to="/" end>
           Карточка
         </NavLink>
+        <NavLink to="/plan">План</NavLink>
         <NavLink to="/history">История</NavLink>
         <NavLink to="/account">Аккаунт</NavLink>
       </nav>
@@ -93,6 +95,7 @@ export function App() {
         }
       >
         <Route index element={<CardPage />} />
+        <Route path="/plan" element={<PlanPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/account" element={<AccountPage />} />
       </Route>

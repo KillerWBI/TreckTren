@@ -23,6 +23,19 @@ const envSchema = z.object({
   BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
   /** demo — без регистрации и входа: все заходят в один тестовый аккаунт. */
   AUTH_MODE: z.enum(AUTH_MODES).default('password'),
+
+  /** ИИ через OpenAI-совместимый API. Без ключа (или с пустым) план собирается по правилам. */
+  AI_API_KEY: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() || undefined : v),
+    z.string().optional(),
+  ),
+  AI_BASE_URL: z.url().default('https://generativelanguage.googleapis.com/v1beta/openai'),
+  AI_MODEL: z.string().min(1).default('gemini-3.5-flash'),
+  /** json_schema → json_object → none: клиент сам понижает режим, если провайдер его не знает. */
+  AI_JSON_MODE: z.enum(['json_schema', 'json_object', 'none']).default('json_schema'),
+  AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(90_000),
+  /** Генераций плана с ИИ на пользователя в сутки. */
+  AI_DAILY_LIMIT: z.coerce.number().int().min(0).default(30),
   /** Папка со сборкой клиента: если задана, API и клиент отдаются с одного домена. */
   CLIENT_DIST_DIR: z.string().optional(),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),

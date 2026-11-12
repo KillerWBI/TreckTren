@@ -202,6 +202,23 @@ export const USER_EDITABLE_SECTIONS = [
   'weakPoints',
 ] as const satisfies readonly CardSection[];
 
+/**
+ * Без этих разделов план не строится. Оборудование и ограничения необязательны:
+ * без списка снарядов считаем, что зал полный, а без травм — что ограничений нет.
+ */
+export const REQUIRED_CARD_SECTIONS = [
+  'goals',
+  'basics',
+  'availability',
+] as const satisfies readonly CardSection[];
+
+/** Раздел заполнен: непустой объект или непустой список. */
+export function isSectionFilled(card: AthleteCard, key: CardSection): boolean {
+  const value = card[key];
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value === 'object' && value !== null && Object.keys(value).length > 0;
+}
+
 export const CARD_SOURCES = ['onboarding', 'user', 'ai'] as const;
 export type CardSource = (typeof CARD_SOURCES)[number];
 
