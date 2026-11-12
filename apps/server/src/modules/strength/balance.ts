@@ -35,6 +35,8 @@ const RULES: Rule[] = [
 ];
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** 116,7 — с запятой, как в остальном приложении. */
+const kg = (n: number) => String(Math.round(n * 10) / 10).replace('.', ',');
 const fmt = (n: number) => n.toFixed(2).replace('.', ',');
 
 /**
@@ -65,7 +67,7 @@ export function analyzeBalance(
         againstName: name(rule.against),
         ratio,
         norm,
-        text: `${name(rule.lagging)} ${a} кг — это ${fmt(ratio)} от движения «${name(rule.against).toLowerCase()}» (${b} кг) при норме ${fmt(norm[0])}–${fmt(norm[1])}. ${name(rule.lagging)} отстаёт.`,
+        text: `${name(rule.lagging)} ${kg(a)} кг — это ${fmt(ratio)} от движения «${name(rule.against).toLowerCase()}» (${kg(b)} кг) при норме ${fmt(norm[0])}–${fmt(norm[1])}. ${name(rule.lagging)} отстаёт.`,
       });
     } else if (rule.reverse && ratio > rule.reverse.above) {
       findings.push({
@@ -76,7 +78,7 @@ export function analyzeBalance(
         againstName: name(rule.lagging),
         ratio: round2(b / a),
         norm: [round2(1 / norm[1]), round2(1 / norm[0])],
-        text: `${name(rule.against)} ${b} кг почти равна движению «${name(rule.lagging).toLowerCase()}» (${a} кг): обычно она на 10–25% больше. ${name(rule.against)} отстаёт.`,
+        text: `${name(rule.against)} ${kg(b)} кг почти равна движению «${name(rule.lagging).toLowerCase()}» (${kg(a)} кг): обычно она на 10–25% больше. ${name(rule.against)} отстаёт.`,
       });
     }
   }
@@ -116,7 +118,7 @@ export const PROTOCOLS: Record<string, Protocol> = {
       {
         id: 'pause-squat',
         title: 'Присед с паузой 2 секунды внизу',
-        howTo: `${roundTo((m['barbell-back-squat'] ?? 100) * 0.7, 2.5)} кг: сколько повторов сделаешь с запасом 1. Пауза — полная остановка в низу.`,
+        howTo: `${kg(roundTo((m['barbell-back-squat'] ?? 100) * 0.7, 2.5))} кг: сколько повторов сделаешь с запасом 1. Пауза — полная остановка в низу.`,
         unit: 'reps',
       },
       {
@@ -174,7 +176,7 @@ export const PROTOCOLS: Record<string, Protocol> = {
       {
         id: 'rdl',
         title: 'Румынская тяга',
-        howTo: `Лучший вес на 5 повторов без округления спины. Ориентир — ${roundTo((m.deadlift ?? 100) * 0.55, 2.5)} кг и выше.`,
+        howTo: `Лучший вес на 5 повторов без округления спины. Ориентир — ${kg(roundTo((m.deadlift ?? 100) * 0.55, 2.5))} кг и выше.`,
         unit: 'kg',
       },
       {
@@ -216,7 +218,7 @@ export const PROTOCOLS: Record<string, Protocol> = {
       {
         id: 'close-grip',
         title: 'Жим узким хватом',
-        howTo: `Лучший вес на 3 повтора, хват на ширине плеч. Ориентир — около ${roundTo((m['bench-press'] ?? 80) * 0.8, 2.5)} кг.`,
+        howTo: `Лучший вес на 3 повтора, хват на ширине плеч. Ориентир — около ${kg(roundTo((m['bench-press'] ?? 80) * 0.8, 2.5))} кг.`,
         unit: 'kg',
       },
       {
