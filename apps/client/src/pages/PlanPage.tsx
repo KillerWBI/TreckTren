@@ -13,7 +13,10 @@ import { PlateMark } from '../components/Sleeve';
 import { ErrorState, Loading } from '../components/States';
 import type { PlateId } from '../card/plates';
 import { formatDate, num, plural, todayIso } from '../format';
+import { Diagnostics } from '../plan/Diagnostics';
+import { Forecast } from '../plan/Forecast';
 import { StrengthForm } from '../plan/StrengthForm';
+import { TestForm } from '../plan/TestForm';
 import { Calendar, summarize } from '../plan/Calendar';
 import { addDays, isoWeekday, shortDay } from '../plan/dates';
 import { useCard, useGeneratePlan, usePlan, useReschedule } from '../plan/usePlan';
@@ -111,8 +114,10 @@ function Builder({ kind, plan, card, onDone, onCancel }: BuilderProps) {
 
   const fillUsual = () => {
     const next = new Set<string>();
-    for (let i = 0; i < 28; i += 1) {
-      const date = addDays(today, i);
+    // До конца 5-й недели блока: 4 недели нагрузки и разгрузка с проходкой.
+    // Неделя блока считается с понедельника, поэтому и конец — воскресенье 5-й недели.
+    const last = addDays(today, 35 - isoWeekday(today));
+    for (let date = today; date <= last; date = addDays(date, 1)) {
       if (usualDays.includes(isoWeekday(date))) next.add(date);
     }
     setSelected(next);
@@ -165,7 +170,7 @@ function Builder({ kind, plan, card, onDone, onCancel }: BuilderProps) {
               className="button button-small button-secondary"
               onClick={fillUsual}
             >
-              Мои дни на 4 недели:{' '}
+              Мои дни на 5 недель:{' '}
               {[...usualDays]
                 .sort()
                 .map((d) => WEEKDAY_SHORT[d])
@@ -351,7 +356,7 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
       <p className="page-lead">
         С {formatDate(block.startDate).replace(' г.', '')}: {block.accumulationWeeks}{' '}
         {plural(block.accumulationWeeks, ['неделя', 'недели', 'недель'])} нагрузки, потом неделя
-        разгрузки.{' '}
+        разгрузки и проходка.{' '}
         {block.source === 'ai'
           ? `Построил ИИ (${block.model ?? 'модель не указана'}).`
           : 'Собран по правилам.'}
@@ -406,6 +411,9 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
         </section>
       )}
 
+      <Forecast block={block} onReschedule={onReschedule} />
+      <Diagnostics />
+
       <button
         type="button"
         className="link-button plan-why"
@@ -439,8 +447,8 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
           <div>
             <dt>Подбери вес</dt>
             <dd>
-              Максимума пока нет. Возьми вес, с которым останется указанный запас, и запиши подходы
-              — дальше тренер посчитает сам. Или укажи максимумы.
+              На блоках и тренажёрах стеки в каждом зале разные. Возьми вес, с которым останется
+              указанный запас, и запиши подходы — дальше тренер посчитает сам.
             </dd>
           </div>
         )}
@@ -462,6 +470,7 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
                   key={s.id}
                   session={s}
                   past={s.date < today}
+                  today={today}
                   isNext={s.id === next?.id}
                   open={openIds.has(s.id)}
                   onToggle={() => toggle(s.id)}
@@ -478,12 +487,13 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
 interface SessionProps {
   session: SessionView;
   past: boolean;
+  today: string;
   isNext: boolean;
   open: boolean;
   onToggle: () => void;
 }
 
-function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps) {
+function SessionItem({ session: s, past, today, isNext, open, onToggle }: SessionProps) {
   const panelId = `session-${s.id}`;
   const empty = s.exercises.length === 0;
   const gap =
@@ -507,7 +517,13 @@ function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps)
         </span>
         <span className="session-meta">
           {gap}
-          {s.adjustments.length > 0 && !empty ? ', есть правки' : ''}
+          {s.phase === 'test'
+            ? s.result
+              ? ', результат записан'
+              : ', проверка прогноза'
+            : s.adjustments.length > 0 && !empty
+              ? ', есть правки'
+              : ''}
         </span>
       </button>
       {open && (
@@ -528,8 +544,9 @@ function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps)
                     {loadText(x.load)}
                   </span>
                   <span className="exercise-sets">
-                    {x.sets} × {x.repsMin === x.repsMax ? x.repsMin : `${x.repsMin}–${x.repsMax}`},
-                    запас {x.rir}
+                    {s.phase === 'test'
+                      ? 'попытка на 1 раз'
+                      : `${x.sets} × ${x.repsMin === x.repsMax ? x.repsMin : `${x.repsMin}–${x.repsMax}`}, запас ${x.rir}`}
                   </span>
                   {loadHint(x.load) && <span className="exercise-hint">{loadHint(x.load)}</span>}
                   {x.note && <span className="exercise-note">{x.note}</span>}
@@ -537,6 +554,7 @@ function SessionItem({ session: s, past, isNext, open, onToggle }: SessionProps)
               ))}
             </ol>
           )}
+          {s.phase === 'test' && <TestForm session={s} today={today} />}
         </div>
       )}
     </li>
@@ -573,7 +591,7 @@ function loadHint(load: LoadView): string {
   if (load.basis === 'ratio') {
     return `От ${ANCHOR_FROM[load.fromSlug ?? ''] ?? 'базового движения'}${load.perHand ? ', на одну гантель' : ''}`;
   }
-  if (load.basis === 'target') return 'Попытка проходки';
+  if (load.basis === 'target') return '';
   return load.perHand ? 'На одну гантель' : '';
 }
 

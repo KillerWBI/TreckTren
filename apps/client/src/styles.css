@@ -1251,3 +1251,178 @@ button {
   font-size: var(--t-xs);
   color: var(--steel);
 }
+
+/* Прогноз и проходка */
+
+.forecast,
+.diagnostics {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.forecast-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.diagnostics .group-title {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.forecast-date {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.forecast-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.forecast-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.forecast-name {
+  font-weight: 600;
+}
+
+.forecast-kg {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.forecast-kg strong {
+  font-weight: 800;
+  font-size: var(--t-xl);
+}
+
+.forecast-goal {
+  grid-column: 1 / -1;
+  font-size: var(--t-sm);
+  color: var(--steel);
+}
+
+.forecast-missing {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.test-form {
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.test-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 0.6fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.test-row legend {
+  float: left;
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 0 0 2px;
+  font-weight: 600;
+  font-size: var(--t-sm);
+}
+
+.test-row:disabled .lift-input {
+  opacity: 0.4;
+}
+
+.test-skip {
+  grid-template-columns: 20px auto;
+  font-size: var(--t-xs);
+}
+
+.test-lifts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.test-lift {
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 4px solid var(--plate-green);
+}
+
+.test-lift[data-verdict='near'] {
+  border-left-color: var(--plate-yellow);
+}
+
+.test-lift[data-verdict='below'],
+.test-lift[data-verdict='regress'] {
+  border-left-color: var(--plate-red);
+}
+
+.test-verdict {
+  font-size: var(--t-xs);
+  font-weight: 700;
+}
+
+.test-numbers {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+}
+
+.test-text {
+  font-size: var(--t-sm);
+  color: var(--steel);
+}
+
+.test-summary {
+  margin-top: 14px;
+  font-size: var(--t-lg);
+}
+
+/* Диагностика */
+
+.check-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--plate-yellow);
+  background: var(--paper);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.check-finding {
+  font-weight: 600;
+}
+
+.check-summary {
+  font-size: var(--t-sm);
+}
+
+.check-test .input-unit {
+  max-width: 180px;
+}

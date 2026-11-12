@@ -1,6 +1,11 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import type { AthleteCard, BlockTemplate, PlanResponse } from '@trektren/shared';
+import type {
+  AthleteCard,
+  BlockTemplate,
+  DiagnosticsResponse,
+  PlanResponse,
+} from '@trektren/shared';
 import { AiError, disabledAi, type AiProvider, type JsonRequest } from '../src/ai/client.js';
 import { createApp } from '../src/app.js';
 import { config } from '../src/config.js';
@@ -371,5 +376,194 @@ describe('план: ИИ', () => {
       .send({ dates: MWF })
       .expect(429);
     expect(res.body.error.code).toBe('RATE_LIMITED');
+  });
+});
+
+describe('прогноз, проходка и диагностика', () => {
+  // 5 недель пн/ср/пт: 4 недели накопления, на 5-й — разгрузка, её пятница — проходка.
+  const fiveWeeks = days([0, 2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28, 30, 32]);
+
+  async function strongAthlete() {
+    const ctx = await athlete(rulesApp, {
+      ...fullCard,
+      goals: { primary: 'strength' },
+      experience: { trainingYears: 1.5 },
+    });
+    await ctx
+      .call()
+      .put('/api/v1/strength')
+      .set(ctx.auth)
+      .send({
+        lifts: [
+          { slug: 'barbell-back-squat', testedKg: 120 },
+          { slug: 'deadlift', testedKg: 170 },
+          { slug: 'bench-press', testedKg: 100 },
+        ],
+        targets: { 'barbell-back-squat': 150 },
+      })
+      .expect(200);
+    return ctx;
+  }
+
+  it('прогноз на конец блока и проходка после разгрузки', async () => {
+    const { auth, call } = await strongAthlete();
+    const plan = (
+      await call().post('/api/v1/plan/generate').set(auth).send({ dates: fiveWeeks }).expect(200)
+    ).body as PlanResponse;
+
+    const forecast = plan.block!.forecast;
+    expect(forecast.map((f) => f.slug)).toEqual(['barbell-back-squat', 'bench-press', 'deadlift']);
+    const squat = forecast[0]!;
+    expect(squat.startKg).toBe(120);
+    expect(squat.targetKg).toBeGreaterThan(120);
+    expect(squat.targetKg % 2.5).toBe(0);
+    expect(squat.goalKg).toBe(150);
+    expect(squat.blocksToGoal).toBeGreaterThan(1);
+    // Присед отстаёт от становой — прогноз по нему выше в процентах.
+    const pct = (f: (typeof forecast)[number]) => f.targetKg / f.startKg;
+    expect(pct(squat)).toBeGreaterThanOrEqual(pct(forecast[1]!));
+
+    const test = plan.sessions.find((s) => s.phase === 'test')!;
+    expect(test.date).toBe(fiveWeeks[fiveWeeks.length - 1]);
+    expect(plan.block!.testDate).toBe(test.date);
+    expect(test.exercises[0]).toMatchObject({
+      slug: 'barbell-back-squat',
+      sets: 1,
+      load: { kind: 'kg', kg: squat.targetKg, basis: 'target' },
+    });
+    expect(test.exercises[0]!.note).toMatch(/Подводка/);
+    expect(plan.sessions.filter((s) => s.phase === 'deload')).toHaveLength(2);
+  });
+
+  it('дни не доходят до разгрузки — проходки нет, видно, с какой даты отмечать', async () => {
+    const { auth, call } = await strongAthlete();
+    const plan = (
+      await call().post('/api/v1/plan/generate').set(auth).send({ dates: MWF }).expect(200)
+    ).body as PlanResponse;
+    expect(plan.block!.testDate).toBeNull();
+    expect(plan.block!.testFrom).toBe(addDays(nextMonday, 28));
+    expect(plan.block!.forecast.length).toBeGreaterThan(0);
+  });
+
+  it('результат проходки: сверка с прогнозом и новые максимумы в карточке', async () => {
+    const { user, auth, call } = await strongAthlete();
+    const plan = (
+      await call().post('/api/v1/plan/generate').set(auth).send({ dates: fiveWeeks }).expect(200)
+    ).body as PlanResponse;
+    const test = plan.sessions.find((s) => s.phase === 'test')!;
+    const [squat, bench, dl] = plan.block!.forecast;
+
+    // Будущую проходку записать нельзя.
+    await call()
+      .post(`/api/v1/plan/sessions/${test.id}/result`)
+      .set(auth)
+      .send({ lifts: [{ slug: 'barbell-back-squat', weightKg: 130, reps: 1 }] })
+      .expect(400);
+    await pool.query('UPDATE scheduled_sessions SET date = $2 WHERE id = $1', [
+      test.id,
+      todayIn('Europe/Warsaw'),
+    ]);
+
+    const res = await call()
+      .post(`/api/v1/plan/sessions/${test.id}/result`)
+      .set(auth)
+      .send({
+        lifts: [
+          { slug: 'barbell-back-squat', weightKg: squat!.targetKg + 2.5, reps: 1 },
+          { slug: 'bench-press', weightKg: bench!.targetKg - 2.5, reps: 1 },
+          { slug: 'deadlift', weightKg: 150, reps: 3 },
+        ],
+      })
+      .expect(200);
+    const done = (res.body as PlanResponse).sessions.find((s) => s.id === test.id)!;
+    expect(done.status).toBe('done');
+    expect(done.result!.lifts.map((l) => l.verdict)).toEqual(['above', 'near', 'regress']);
+    expect(done.result!.lifts[2]!.oneRmKg).toBe(165);
+    expect(done.result!.summary).toMatch(/2 из 3/);
+    expect(done.result!.summary).toMatch(/становая тяга/);
+
+    const card = (await call().get('/api/v1/card').set(auth).expect(200)).body.card as AthleteCard;
+    expect(card.strength!.lifts!['barbell-back-squat']).toMatchObject({
+      testedKg: squat!.targetKg + 2.5,
+      oneRmKg: squat!.targetKg + 2.5,
+      source: 'test',
+    });
+    // Становая на 3 повтора — рабочий подход; реальный максимум 170 остаётся.
+    expect(card.strength!.lifts!.deadlift).toMatchObject({
+      testedKg: 170,
+      working: { weightKg: 150, reps: 3 },
+    });
+    expect(dl).toBeDefined();
+    const { rows } = await pool.query(
+      'SELECT count(*)::int AS n FROM card_versions WHERE user_id = $1 AND reason = $2',
+      [user.userId, 'Проходка'],
+    );
+    expect(rows[0].n).toBe(1);
+
+    // Обычную тренировку как проходку не записать.
+    const regular = plan.sessions.find((s) => s.phase === 'accumulation')!;
+    await call()
+      .post(`/api/v1/plan/sessions/${regular.id}/result`)
+      .set(auth)
+      .send({ lifts: [{ slug: 'barbell-back-squat', weightKg: 100, reps: 1 }] })
+      .expect(400);
+  });
+
+  it('диагностика: находит отстающий присед, даёт тесты, пишет вывод в слабые места', async () => {
+    const { auth, call } = await strongAthlete();
+    await call().post('/api/v1/plan/generate').set(auth).send({ dates: MWF }).expect(200);
+
+    const res = await call().get('/api/v1/diagnostics').set(auth).expect(200);
+    const body = res.body as DiagnosticsResponse;
+    expect(body.checks).toHaveLength(1);
+    const check = body.checks[0]!;
+    expect(check.finding).toMatchObject({
+      id: 'squat-vs-deadlift',
+      lagging: 'barbell-back-squat',
+      ratio: 0.71,
+    });
+    expect(check.tests.map((t) => t.id)).toEqual(['front-squat', 'pause-squat', 'ankle']);
+    expect(check.tests[1]!.howTo).toMatch(/^85 кг/);
+
+    const after = await call()
+      .post('/api/v1/diagnostics/squat-vs-deadlift')
+      .set(auth)
+      .send({ results: { 'front-squat': 80, 'pause-squat': 3, ankle: 12, unknown: 5 } })
+      .expect(200);
+    const last = (after.body as DiagnosticsResponse).checks[0]!.last!;
+    expect(last.results).toEqual({ 'front-squat': 80, 'pause-squat': 3, ankle: 12 });
+    expect(last.summary).toMatch(/квадрицепсы/);
+    expect(last.summary).toMatch(/нижней точке/);
+    expect(last.summary).not.toMatch(/Голеностоп/);
+
+    const card = (await call().get('/api/v1/card').set(auth).expect(200)).body.card as AthleteCard;
+    expect(card.weakPoints).toEqual([
+      expect.objectContaining({
+        id: 'diag-squat-vs-deadlift',
+        area: 'Присед со штангой',
+        status: 'confirmed',
+        source: 'ai',
+      }),
+    ]);
+    // Вывод диагностики — повод перестроить план.
+    const plan = (await call().get('/api/v1/plan').set(auth).expect(200)).body as PlanResponse;
+    expect(plan.block!.staleSections).toEqual(['weakPoints']);
+
+    await call()
+      .post('/api/v1/diagnostics/bench-vs-squat')
+      .set(auth)
+      .send({ results: { 'close-grip': 80 } })
+      .expect(404);
+    await call()
+      .post('/api/v1/diagnostics/squat-vs-deadlift')
+      .set(auth)
+      .send({ results: { nope: 1 } })
+      .expect(400);
+  });
+
+  it('без максимумов — диагностике нечего сравнивать', async () => {
+    const { auth, call } = await athlete();
+    const res = await call().get('/api/v1/diagnostics').set(auth).expect(200);
+    expect(res.body).toEqual({ checks: [], note: expect.stringMatching(/хотя бы в двух/) });
   });
 });

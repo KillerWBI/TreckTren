@@ -126,7 +126,58 @@ export interface SessionView extends Omit<PlannedSession, 'exercises'> {
   date: string;
   status: 'planned' | 'done' | 'missed' | 'moved';
   exercises: SessionExerciseView[];
+  /** Итог проходки, если она уже записана. */
+  result: TestResult | null;
 }
+
+/** Прогноз максимума на конец блока. */
+export interface LiftForecast {
+  slug: string;
+  name: string;
+  startKg: number;
+  targetKg: number;
+  /** Цель человека из «Силовых». */
+  goalKg: number | null;
+  /** Сколько примерно блоков до цели при таком темпе; null — цели нет или она уже взята. */
+  blocksToGoal: number | null;
+  /** Максимум на старте посчитан, а не введён: прогноз грубее. */
+  estimated: boolean;
+}
+
+export type TestVerdict = 'above' | 'near' | 'below' | 'regress';
+
+export interface TestLiftResult {
+  slug: string;
+  name: string;
+  weightKg: number;
+  reps: number;
+  /** Максимум по результату: вес, если 1 повтор, иначе расчёт по Эпли. */
+  oneRmKg: number;
+  startKg: number;
+  targetKg: number;
+  verdict: TestVerdict;
+  text: string;
+}
+
+export interface TestResult {
+  date: string;
+  lifts: TestLiftResult[];
+  summary: string;
+}
+
+export const testResultRequestSchema = z.strictObject({
+  lifts: z
+    .array(
+      z.strictObject({
+        slug: exerciseSlugSchema,
+        weightKg: z.number().min(1).max(600),
+        reps: z.number().int().min(1).max(15),
+      }),
+    )
+    .min(1)
+    .max(6),
+});
+export type TestResultRequest = z.infer<typeof testResultRequestSchema>;
 
 export interface BlockView {
   id: string;
@@ -146,6 +197,12 @@ export interface BlockView {
   factsNote: string | null;
   /** Разделы карточки, изменённые после построения плана: план стоит перестроить. */
   staleSections: string[];
+  /** Прогноз максимумов на конец блока — их проверяет проходка. */
+  forecast: LiftForecast[];
+  /** Дата проходки; null — выбранные дни не доходят до конца разгрузки. */
+  testDate: string | null;
+  /** С какой даты отмечать дни, чтобы проходка попала в план. */
+  testFrom: string;
   createdAt: string;
 }
 
@@ -241,3 +298,48 @@ export function epleyOneRm(weightKg: number, reps: number): number {
 export function weightForReps(oneRmKg: number, reps: number, rir: number): number {
   return oneRmKg / (1 + (reps + rir) / 30);
 }
+
+/* Диагностика слабых мест ------------------------------------------------ */
+
+/** Отставание по соотношению максимумов: что отстаёт, от чего и насколько. */
+export interface BalanceFinding {
+  id: string;
+  lagging: string;
+  laggingName: string;
+  against: string;
+  againstName: string;
+  ratio: number;
+  norm: [number, number];
+  text: string;
+}
+
+export interface DiagnosticTest {
+  id: string;
+  title: string;
+  /** Что сделать в зале — коротко и с конкретным весом, если он нужен. */
+  howTo: string;
+  unit: 'kg' | 'reps' | 'cm' | 'sec';
+}
+
+export interface DiagnosticCheck {
+  finding: BalanceFinding;
+  tests: DiagnosticTest[];
+  /** Последняя проверка: введённые результаты и вывод. */
+  last: {
+    date: string;
+    results: Record<string, number>;
+    conclusions: string[];
+    summary: string;
+  } | null;
+}
+
+export interface DiagnosticsResponse {
+  checks: DiagnosticCheck[];
+  /** Почему нечего проверять: например, нет максимумов в базовых. */
+  note: string | null;
+}
+
+export const diagnosticResultsSchema = z.strictObject({
+  results: z.record(z.string().regex(/^[a-z0-9-]{1,40}$/), z.number().min(0).max(600)),
+});
+export type DiagnosticResults = z.infer<typeof diagnosticResultsSchema>;

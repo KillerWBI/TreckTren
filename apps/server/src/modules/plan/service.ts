@@ -10,8 +10,15 @@ import {
   type PlannedSession,
   type PlanResponse,
   type PlanSource,
+  type LiftForecast,
   type SessionView,
+  type TestLiftResult,
+  type TestResult,
+  type TestResultRequest,
+  type TestVerdict,
   type TextFacts,
+  epleyOneRm,
+  round1,
 } from '@trektren/shared';
 import { AiError, type AiProvider } from '../../ai/client.js';
 import { config } from '../../config.js';
@@ -20,10 +27,13 @@ import { pool, withTransaction } from '../../db.js';
 import { AppError, notFound } from '../../errors.js';
 import { getCard } from '../card/service.js';
 import { loadExercises, type Exercise } from '../exercises/repo.js';
+import { analyzeBalance } from '../strength/balance.js';
+import { DIAGNOSTIC_REASON } from '../strength/diagnostics.js';
 import { estimateMaxes, type MaxEstimate } from '../strength/estimate.js';
+import { forecastBlock } from '../strength/forecast.js';
 import { userToday, writeStrength } from '../strength/service.js';
 import { filterAvailable } from './availability.js';
-import { layoutSessions, type LaidOutSession } from './layout.js';
+import { deloadWeekStart, layoutSessions, type LaidOutSession } from './layout.js';
 import { loadFor } from './loads.js';
 import { normalizeTemplate } from './normalize.js';
 import { buildPlanMessages } from './prompt.js';
@@ -49,6 +59,7 @@ interface StoredPlan {
   generationNote: string | null;
   excluded: string[];
   factsNote?: string | null;
+  forecast?: LiftForecast[];
 }
 
 interface BlockRow {
@@ -64,6 +75,7 @@ interface SessionRow {
   date: string;
   status: SessionView['status'];
   planned_json: PlannedSession;
+  result_json: TestResult | null;
 }
 
 export async function getPlan(userId: string, ai: AiProvider): Promise<PlanResponse> {
@@ -73,7 +85,7 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
 
   const [{ rows }, { card }, all, staleSections] = await Promise.all([
     pool.query<SessionRow>(
-      'SELECT id, date, status, planned_json FROM scheduled_sessions WHERE block_id = $1 ORDER BY date',
+      'SELECT id, date, status, planned_json, result_json FROM scheduled_sessions WHERE block_id = $1 ORDER BY date',
       [block.id],
     ),
     getCard(userId),
@@ -89,6 +101,7 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
     id: r.id,
     date: r.date,
     status: r.status,
+    result: r.result_json,
     ...r.planned_json,
     exercises: r.planned_json.exercises.map((x) => {
       const exercise = exercises.get(x.slug);
@@ -99,14 +112,16 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
       };
     }),
   }));
-  return { block: toBlockView(block, staleSections), sessions, ai: aiStatus };
+  const testDate = sessions.find((x) => x.phase === 'test')?.date ?? null;
+  return { block: toBlockView(block, staleSections, testDate), sessions, ai: aiStatus };
 }
 
 /** Разделы карточки, которые человек поменял после построения плана. Силовые не в счёт: веса пересчитываются сами. */
 async function changedSince(userId: string, since: Date): Promise<string[]> {
   const { rows } = await pool.query<{ patch: Record<string, unknown> }>(
-    `SELECT patch FROM card_versions WHERE user_id = $1 AND created_at > $2 AND source = 'user'`,
-    [userId, since],
+    `SELECT patch FROM card_versions
+     WHERE user_id = $1 AND created_at > $2 AND (source = 'user' OR reason LIKE $3)`,
+    [userId, since, `${DIAGNOSTIC_REASON}%`],
   );
   const sections = new Set(rows.flatMap((r) => Object.keys(r.patch)));
   sections.delete('strength');
@@ -159,6 +174,7 @@ export async function generatePlan(
           schedule,
           available,
           maxes: anchorMaxes(card, all),
+          findings: analyzeBalance(card, new Map(all.map((e) => [e.slug, e]))),
           previous: previous?.plan_json.template,
           comment: comment ?? undefined,
         }),
@@ -197,7 +213,15 @@ export async function generatePlan(
   }
 
   const exercises = new Map(all.map((e) => [e.slug, e]));
-  const laid = layoutSessions(template, dates, exercises);
+  const forecast = forecastBlock({
+    card,
+    template,
+    maxes: estimateMaxes(card, all),
+    exercises,
+    findings: analyzeBalance(card, exercises),
+    today,
+  });
+  const laid = layoutSessions(template, dates, exercises, dates[0], testLifts(forecast));
   const stored: StoredPlan = {
     template,
     source,
@@ -206,6 +230,7 @@ export async function generatePlan(
     generationNote,
     excluded: excluded.map((e) => e.name),
     factsNote,
+    forecast,
   };
 
   try {
@@ -261,9 +286,13 @@ export async function updateSchedule(
     const dates = uniqueSorted([...past.map((r) => r.date), ...future]);
     const start = dates[0]! < block.start_date ? dates[0]! : block.start_date;
     // Раскладываем все даты, чтобы недели и ротация шли от начала блока, а пишем только будущие.
-    const laid = layoutSessions(block.plan_json.template, dates, exercises, start).filter(
-      (s) => s.date >= today,
-    );
+    const laid = layoutSessions(
+      block.plan_json.template,
+      dates,
+      exercises,
+      start,
+      testLifts(block.plan_json.forecast ?? []),
+    ).filter((s) => s.date >= today);
 
     await c.query(
       `DELETE FROM scheduled_sessions WHERE block_id = $1 AND status = 'planned' AND date >= $2`,
@@ -302,7 +331,7 @@ async function activeBlock(db: PoolClient | typeof pool, userId: string, lock = 
   return rows[0];
 }
 
-function toBlockView(b: BlockRow, staleSections: string[] = []): BlockView {
+function toBlockView(b: BlockRow, staleSections: string[], testDate: string | null): BlockView {
   const p = b.plan_json;
   return {
     id: b.id,
@@ -318,6 +347,9 @@ function toBlockView(b: BlockRow, staleSections: string[] = []): BlockView {
     excluded: p.excluded,
     factsNote: p.factsNote ?? null,
     staleSections,
+    forecast: p.forecast ?? [],
+    testDate,
+    testFrom: deloadWeekStart(p.template, b.start_date),
     createdAt: b.created_at.toISOString(),
   };
 }
@@ -433,4 +465,116 @@ async function recordAiUsage(userId: string, today: string, tokens: number): Pro
      DO UPDATE SET requests = ai_usage.requests + 1, tokens = ai_usage.tokens + EXCLUDED.tokens`,
     [userId, today, tokens],
   );
+}
+
+const testLifts = (forecast: LiftForecast[]) =>
+  forecast.map((f) => ({ slug: f.slug, targetKg: f.targetKg }));
+
+const kg = (n: number) => String(round1(n)).replace('.', ',');
+
+function verdictFor(oneRm: number, startKg: number, targetKg: number): TestVerdict {
+  if (oneRm >= targetKg) return 'above';
+  if (oneRm >= targetKg - 2.5) return 'near';
+  if (oneRm > startKg) return 'below';
+  return 'regress';
+}
+
+function liftText(r: Omit<TestLiftResult, 'text'>): string {
+  const what =
+    r.reps === 1 ? `${kg(r.weightKg)} кг` : `${kg(r.weightKg)}×${r.reps} ≈ ${kg(r.oneRmKg)} кг`;
+  const head = `${r.name}: ${what}, прогноз ${kg(r.targetKg)}.`;
+  switch (r.verdict) {
+    case 'above':
+      return r.oneRmKg > r.targetKg
+        ? `${head} Выше прогноза на ${kg(r.oneRmKg - r.targetKg)} кг — блок сработал, следующий строим от нового максимума.`
+        : `${head} Ровно по прогнозу — блок сработал, следующий строим от нового максимума.`;
+    case 'near':
+      return `${head} Почти: до прогноза ${kg(r.targetKg - r.oneRmKg)} кг. Схема рабочая, продолжаем.`;
+    case 'below':
+      return `${head} Рост +${kg(r.oneRmKg - r.startKg)} кг, но ниже прогноза на ${kg(r.targetKg - r.oneRmKg)} кг. Проверь сон, пропуски и честность запаса в подходах.`;
+    case 'regress':
+      return `${head} Не выше старта (${kg(r.startKg)}). Это регресс: сначала сон, питание и пропуски, в следующем блоке меньше объёма и больше техники на этом движении.`;
+  }
+}
+
+/**
+ * Результат проходки: сверка с прогнозом по каждому движению, новые максимумы в карточку,
+ * итог и что менять в следующем блоке.
+ */
+export async function recordTestResult(
+  userId: string,
+  sessionId: string,
+  request: TestResultRequest,
+  ai: AiProvider,
+): Promise<PlanResponse> {
+  const { rows } = await pool.query<SessionRow & { plan_json: StoredPlan }>(
+    `SELECT s.id, s.date, s.status, s.planned_json, s.result_json, b.plan_json
+     FROM scheduled_sessions s JOIN training_blocks b ON b.id = s.block_id
+     WHERE s.id = $1 AND s.user_id = $2 AND b.status = 'active'`,
+    [sessionId, userId],
+  );
+  const session = rows[0];
+  if (!session) throw notFound('Тренировка не найдена');
+  if (session.planned_json.phase !== 'test') {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Результат записывается только для проходки');
+  }
+  const today = await userToday(userId);
+  if (session.date > today) {
+    throw new AppError(
+      400,
+      'VALIDATION_ERROR',
+      'Проходка ещё впереди — запиши результат в её день',
+    );
+  }
+
+  const planned = new Map(session.planned_json.exercises.map((x) => [x.slug, x]));
+  const forecast = new Map((session.plan_json.forecast ?? []).map((f) => [f.slug, f]));
+  const exercises = new Map((await loadExercises()).map((e) => [e.slug, e]));
+  const lifts: TestLiftResult[] = request.lifts.map((l) => {
+    const p = planned.get(l.slug);
+    if (!p) throw new AppError(400, 'VALIDATION_ERROR', `«${l.slug}» нет в этой проходке`);
+    const f = forecast.get(l.slug);
+    const oneRmKg = round1(epleyOneRm(l.weightKg, l.reps));
+    const targetKg = f?.targetKg ?? p.targetKg ?? oneRmKg;
+    const startKg = f?.startKg ?? targetKg;
+    const base = {
+      slug: l.slug,
+      name: exercises.get(l.slug)?.name ?? l.slug,
+      weightKg: l.weightKg,
+      reps: l.reps,
+      oneRmKg,
+      startKg,
+      targetKg,
+      verdict: verdictFor(oneRmKg, startKg, targetKg),
+    };
+    return { ...base, text: liftText(base) };
+  });
+
+  const hit = lifts.filter((l) => l.verdict === 'above' || l.verdict === 'near');
+  const behind = lifts.filter((l) => l.verdict === 'below' || l.verdict === 'regress');
+  const summary = [
+    `По прогнозу: ${hit.length} из ${lifts.length}.`,
+    behind.length > 0
+      ? `Отстаёт: ${behind.map((l) => l.name.toLowerCase()).join(', ')} — в следующем блоке акцент на ${behind.length > 1 ? 'этих движениях' : 'этом движении'}.`
+      : 'Все движения растут как надо.',
+    'Новые максимумы записаны в «Силовые». Нажми «Перестроить» — следующий блок построится от них.',
+  ].join(' ');
+  const result: TestResult = { date: today, lifts, summary };
+
+  const { card } = await getCard(userId);
+  await writeStrength(userId, card, {
+    lifts: lifts.map((l) =>
+      l.reps === 1
+        ? { slug: l.slug, testedKg: l.weightKg }
+        : { slug: l.slug, working: { weightKg: l.weightKg, reps: l.reps, rir: 0 } },
+    ),
+    source: 'test',
+    cardSource: 'user',
+    reason: 'Проходка',
+  });
+  await pool.query(
+    `UPDATE scheduled_sessions SET result_json = $2, status = 'done' WHERE id = $1`,
+    [sessionId, JSON.stringify(result)],
+  );
+  return getPlan(userId, ai);
 }

@@ -1,4 +1,4 @@
-import type { AthleteCard, BlockTemplate } from '@trektren/shared';
+import type { AthleteCard, BalanceFinding, BlockTemplate } from '@trektren/shared';
 import type { ChatMessage } from '../../ai/client.js';
 import type { Exercise } from '../exercises/repo.js';
 import type { MaxEstimate } from '../strength/estimate.js';
@@ -31,6 +31,8 @@ interface PromptInput {
   available: Exercise[];
   /** Максимумы опорных движений: свои и посчитанные. */
   maxes: Array<{ slug: string } & MaxEstimate>;
+  /** Отстающие движения по соотношениям максимумов. */
+  findings?: BalanceFinding[] | undefined;
   previous?: BlockTemplate | undefined;
   comment?: string | undefined;
 }
@@ -59,6 +61,11 @@ export function buildPlanMessages(input: PromptInput): ChatMessage[] {
     `Карточка атлета (JSON):\n${JSON.stringify(card)}`,
     `Выбранные дни тренировок: ${input.schedule.dates.join(', ')}.\nПромежутки между ними, дней: ${input.schedule.gaps.join(', ') || '—'}. В среднем тренировок в неделю: ${input.schedule.perWeek}.`,
     `Максимумы опорных движений (1ПМ): ${maxes}`,
+    `Отстающие движения по соотношениям: ${
+      input.findings && input.findings.length > 0
+        ? input.findings.map((f) => f.text).join(' ')
+        : 'не найдено'
+    } Отстающим движениям — больше частоты и подсобки на их слабое звено.`,
     `Доступные упражнения (slug | название | паттерн | основные мышцы):\n${exercises}`,
   ];
   if (input.previous) {

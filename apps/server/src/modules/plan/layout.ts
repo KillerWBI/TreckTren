@@ -4,8 +4,9 @@ import type {
   PlannedSession,
   SessionTemplate,
 } from '@trektren/shared';
-import { diffDays, mondayOf } from '../../dates.js';
+import { addDays, diffDays, mondayOf } from '../../dates.js';
 import type { Exercise } from '../exercises/repo.js';
+import { warmupNote } from '../strength/forecast.js';
 
 /** Крупные группы, которым нужно 48+ часов между тяжёлыми тренировками. */
 const MAJOR = ['quads', 'hamstrings', 'glutes', 'back', 'chest', 'shoulders'] as const;
@@ -39,6 +40,7 @@ export function layoutSessions(
   dates: string[],
   exercises: Map<string, Exercise>,
   startDate = dates[0]!,
+  testLifts: Array<{ slug: string; targetKg: number }> = [],
 ): LaidOutSession[] {
   const startMonday = mondayOf(startDate);
   const byKey = new Map(template.sessions.map((s) => [s.key, s]));
@@ -146,7 +148,37 @@ export function layoutSessions(
     prevDate = date;
     prevKey = key;
   }
+  // Проходка — последняя тренировка разгрузочной недели: свежий после разгрузки, проверяем прогноз.
+  const testIndex = result.map((r) => r.planned.phase).lastIndexOf('deload');
+  if (testIndex !== -1 && testLifts.length > 0) {
+    const slot = result[testIndex]!;
+    slot.planned = {
+      week: slot.planned.week,
+      phase: 'test',
+      templateKey: 'T',
+      title: 'Проходка',
+      gapDays: slot.planned.gapDays,
+      adjustments: [
+        'Проверяем прогноз блока. После подводки — одна попытка на прогнозный вес. Пошло легко — +2,5 кг. Впиши лучший результат, даже если не дотянул: так тренер поймёт, что сработало.',
+      ],
+      exercises: testLifts.map((l) => ({
+        slug: l.slug,
+        sets: 1,
+        repsMin: 1,
+        repsMax: 1,
+        rir: 0,
+        loadFactor: 1,
+        targetKg: l.targetKg,
+        note: warmupNote(l.targetKg),
+      })),
+    };
+  }
   return result;
+}
+
+/** Первый день разгрузочной недели: с него отмечать дни, чтобы в плане была проходка. */
+export function deloadWeekStart(template: BlockTemplate, startDate: string): string {
+  return addDays(mondayOf(startDate), template.accumulationWeeks * 7);
 }
 
 /**

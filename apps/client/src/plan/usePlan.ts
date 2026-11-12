@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardResponse, ExerciseView, PlanResponse, StrengthUpdate } from '@trektren/shared';
+import type {
+  CardResponse,
+  DiagnosticsResponse,
+  ExerciseView,
+  PlanResponse,
+  StrengthUpdate,
+  TestResultRequest,
+} from '@trektren/shared';
 import { api } from '../api/http';
 import { CARD_KEY, VERSIONS_KEY } from '../card/useSaveCard';
 
 export const PLAN_KEY = ['plan'] as const;
 export const EXERCISES_KEY = ['exercises'] as const;
+export const DIAGNOSTICS_KEY = ['diagnostics'] as const;
 
 export const usePlan = () =>
   useQuery({ queryKey: PLAN_KEY, queryFn: () => api<PlanResponse>('/plan') });
@@ -50,6 +58,41 @@ export function useSaveStrength() {
       });
       void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
       void queryClient.invalidateQueries({ queryKey: PLAN_KEY });
+      void queryClient.invalidateQueries({ queryKey: DIAGNOSTICS_KEY });
+    },
+  });
+}
+
+export function useRecordTest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, lifts }: { sessionId: string } & TestResultRequest) =>
+      api<PlanResponse>(`/plan/sessions/${sessionId}/result`, { method: 'POST', json: { lifts } }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(PLAN_KEY, data);
+      void queryClient.invalidateQueries({ queryKey: CARD_KEY });
+      void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
+      void queryClient.invalidateQueries({ queryKey: DIAGNOSTICS_KEY });
+    },
+  });
+}
+
+export const useDiagnostics = () =>
+  useQuery({
+    queryKey: DIAGNOSTICS_KEY,
+    queryFn: () => api<DiagnosticsResponse>('/diagnostics'),
+  });
+
+export function useSubmitDiagnostic() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ findingId, results }: { findingId: string; results: Record<string, number> }) =>
+      api<DiagnosticsResponse>(`/diagnostics/${findingId}`, { method: 'POST', json: { results } }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(DIAGNOSTICS_KEY, data);
+      void queryClient.invalidateQueries({ queryKey: PLAN_KEY });
+      void queryClient.invalidateQueries({ queryKey: CARD_KEY });
+      void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
     },
   });
 }
