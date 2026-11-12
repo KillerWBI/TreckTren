@@ -92,7 +92,8 @@ function Builder({ kind, plan, card, onDone, onCancel }: BuilderProps) {
   const [selected, setSelected] = useState(
     () => new Set(kind === 'reschedule' || plan.block ? future : []),
   );
-  const [comment, setComment] = useState('');
+  // Пожелания из прошлого плана не теряются: при перестройке они уже в поле.
+  const [comment, setComment] = useState(kind === 'generate' ? (plan.block?.comment ?? '') : '');
   const [baselineOpen, setBaselineOpen] = useState(false);
   const generate = useGeneratePlan();
   const reschedule = useReschedule();
