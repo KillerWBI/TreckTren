@@ -64,18 +64,18 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
   let mode: JsonMode = options.jsonMode ?? 'json_schema';
 
   async function call(messages: ChatMessage[], request: JsonRequest<unknown>) {
+    const schema = toJsonSchema(request.schema);
     for (;;) {
       const body: Record<string, unknown> = {
         model: options.model,
-        messages,
+        // Без json_schema модель не видит схему из response_format — кладём её в промпт.
+        messages: mode === 'json_schema' ? messages : withSchemaInPrompt(messages, schema),
         temperature: 0.4,
-        max_tokens: request.maxTokens ?? 6000,
+        // С запасом: у думающих моделей (Gemini 3) рассуждения тоже считаются в этот лимит.
+        max_tokens: request.maxTokens ?? 16_000,
       };
       if (mode === 'json_schema') {
-        body.response_format = {
-          type: 'json_schema',
-          json_schema: { name: request.name, schema: toJsonSchema(request.schema), strict: false },
-        };
+        body.response_format = { type: 'json_schema', json_schema: { name: request.name, schema } };
       } else if (mode === 'json_object') {
         body.response_format = { type: 'json_object' };
       }
@@ -103,12 +103,16 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
 
       if (res.status === 429) throw new AiError('rate_limited', 'Лимит запросов к ИИ исчерпан');
       if (res.status === 400 && mode !== 'none') {
+        // Провайдеры по-разному сообщают, что не понимают response_format (Gemini — просто
+        // «invalid argument»), поэтому на любой 400 пробуем режим попроще.
         const text = await res.text();
-        if (/response_format|json_schema|json_object|schema/i.test(text)) {
-          mode = MODE_ORDER[MODE_ORDER.indexOf(mode) + 1]!;
-          continue;
-        }
-        throw new AiError('http', `ИИ отклонил запрос: ${shorten(text)}`);
+        const next = MODE_ORDER[MODE_ORDER.indexOf(mode) + 1]!;
+        console.warn(`[ai] ${mode} не принят (${shorten(text, 160)}), пробую ${next}`);
+        mode = next;
+        continue;
+      }
+      if (res.status === 400) {
+        throw new AiError('http', `ИИ отклонил запрос: ${shorten(await res.text())}`);
       }
       if (!res.ok) {
         throw new AiError('http', `ИИ ответил ошибкой ${res.status}: ${shorten(await res.text())}`);
@@ -116,11 +120,19 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
 
       const data = (await res.json()) as {
         model?: string;
-        choices?: Array<{ message?: { content?: string | null } }>;
+        choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
         usage?: { total_tokens?: number };
       };
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new AiError('bad_response', 'ИИ вернул пустой ответ');
+      const choice = data.choices?.[0];
+      const content = choice?.message?.content;
+      if (!content) {
+        throw new AiError(
+          'bad_response',
+          choice?.finish_reason === 'length'
+            ? 'ИИ не уложился в лимит ответа'
+            : 'ИИ вернул пустой ответ',
+        );
+      }
       return { content, model: data.model ?? options.model, tokens: data.usage?.total_tokens ?? 0 };
     }
   }
@@ -188,13 +200,60 @@ export function extractJson(content: string): unknown {
   }
 }
 
-function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
-  const json = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>;
-  delete json.$schema;
-  return json;
+/** Ключи JSON Schema, которые понимают все OpenAI-совместимые провайдеры, включая Gemini. */
+const SCHEMA_KEYS = new Set([
+  'type',
+  'properties',
+  'required',
+  'items',
+  'enum',
+  'description',
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+  'anyOf',
+]);
+
+/**
+ * Схема для response_format без того, на чём спотыкаются провайдеры:
+ * additionalProperties, pattern, длины строк, $schema. Эти правила всё равно проверяет zod.
+ */
+export function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  return simplify(z.toJSONSchema(schema, { unrepresentable: 'any' })) as Record<string, unknown>;
+}
+
+function simplify(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(simplify);
+  if (typeof node !== 'object' || node === null) return node;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (!SCHEMA_KEYS.has(key)) continue;
+    if (key === 'properties') {
+      result[key] = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, simplify(v)]),
+      );
+    } else {
+      result[key] = simplify(value);
+    }
+  }
+  return result;
+}
+
+function withSchemaInPrompt(
+  messages: ChatMessage[],
+  schema: Record<string, unknown>,
+): ChatMessage[] {
+  const note = `\n\nОтвет — один JSON-объект строго по этой JSON Schema:\n${JSON.stringify(schema)}`;
+  const index = messages.findIndex((m) => m.role === 'system');
+  if (index === -1) return [{ role: 'system', content: note.trim() }, ...messages];
+  return messages.map((m, i) => (i === index ? { ...m, content: m.content + note } : m));
 }
 
 /** Текст ошибки провайдера: обрезан и без того, что похоже на ключи (AIza…, sk-…, gsk_…). */
-function shorten(text: string): string {
-  return text.replace(/\b(AIza|sk-|gsk_|sk_)[A-Za-z0-9_-]{8,}/g, '$1…').slice(0, 300);
+function shorten(text: string, max = 300): string {
+  return text
+    .replace(/\b(AIza|sk-|gsk_|sk_)[A-Za-z0-9_-]{8,}/g, '$1…')
+    .replace(/\s+/g, ' ')
+    .slice(0, max);
 }

@@ -29,6 +29,14 @@ import { buildPlanMessages } from './prompt.js';
 import { buildRulesTemplate } from './rules.js';
 import { describeSchedule } from './schedule.js';
 
+const AI_FAILURE_TEXT: Record<AiError['kind'], string> = {
+  not_configured: 'ИИ не подключён',
+  rate_limited: 'У ИИ закончился лимит запросов',
+  timeout: 'ИИ не ответил вовремя',
+  http: 'ИИ вернул ошибку',
+  bad_response: 'ИИ вернул план, который не прошёл проверку',
+};
+
 /** Насколько вперёд можно ставить тренировки. */
 const MAX_DAYS_AHEAD = 56;
 
@@ -149,9 +157,9 @@ export async function generatePlan(
     } catch (err) {
       if (!(err instanceof AiError)) throw err;
       await recordAiUsage(userId, today, 0);
-      // Без логов тела запроса: только причина.
-      console.warn(`[ai] план собран по правилам: ${err.kind}`);
-      generationNote = `ИИ не ответил (${err.message.toLowerCase()}) — план собран по правилам.`;
+      // В лог — только причина от провайдера, без карточки и промпта.
+      console.warn(`[ai] план собран по правилам: ${err.kind}: ${err.message}`);
+      generationNote = `${AI_FAILURE_TEXT[err.kind]} — план собран по правилам. Нажми «Перестроить» чуть позже.`;
     }
   }
   template ??= buildRulesTemplate(card, available, schedule);

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { AiError, extractJson, openAiCompatible, type JsonRequest } from '../src/ai/client.js';
+import { blockTemplateSchema } from '@trektren/shared';
+import {
+  AiError,
+  extractJson,
+  openAiCompatible,
+  toJsonSchema,
+  type JsonRequest,
+} from '../src/ai/client.js';
 
 const schema = z.object({ answer: z.number() });
 
@@ -87,6 +94,44 @@ describe('ИИ-клиент', () => {
     });
     await ai2.generateJson(request);
     expect(second.calls[0]!.body.response_format).toBeUndefined();
+  });
+
+  it('непонятный 400 (как у Gemini) — тоже пробует режим попроще, схема уходит в промпт', async () => {
+    const { impl, calls } = fakeFetch([
+      () =>
+        new Response('[{"error":{"code":400,"message":"Request contains an invalid argument."}}]', {
+          status: 400,
+        }),
+      reply('{"answer": 3}'),
+    ]);
+    const withSystem = {
+      ...request,
+      messages: [{ role: 'system' as const, content: 'Ты тренер.' }, ...request.messages],
+    };
+    expect((await provider(impl).generateJson(withSystem)).value).toEqual({ answer: 3 });
+    expect(calls[1]!.body.response_format).toEqual({ type: 'json_object' });
+    const messages = calls[1]!.body.messages as Array<{ role: string; content: string }>;
+    expect(messages[0]!.content).toMatch(/^Ты тренер\.[\s\S]*JSON Schema[\s\S]*"answer"/);
+    expect(messages).toHaveLength(2);
+  });
+
+  it('в схеме для провайдера только общепонятные ключи', () => {
+    const json = JSON.stringify(toJsonSchema(blockTemplateSchema));
+    for (const key of ['additionalProperties', 'pattern', 'minLength', 'maxLength', '$schema']) {
+      expect(json).not.toContain(`"${key}"`);
+    }
+    expect(json).toContain('"required"');
+    expect(json).toContain('"minItems"');
+  });
+
+  it('ответ обрезан по лимиту — понятная ошибка', async () => {
+    const { impl } = fakeFetch([
+      () => Response.json({ choices: [{ message: { content: null }, finish_reason: 'length' }] }),
+    ]);
+    await expect(provider(impl).generateJson(request)).rejects.toMatchObject({
+      kind: 'bad_response',
+      message: 'ИИ не уложился в лимит ответа',
+    });
   });
 
   it('невалидный ответ отправляет модели на одно исправление', async () => {
