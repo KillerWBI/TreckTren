@@ -116,6 +116,9 @@
 | `PUT /plan/schedule`             | Новые дни для текущего блока: `{ dates }`, без ИИ                                       |
 | `PUT /strength`                  | «Силовые»: `{ lifts: [{ slug, testedKg?, working? }], targets? }`, `null` удаляет       |
 | `POST /plan/sessions/:id/result` | Результат проходки: `{ lifts: [{ slug, weightKg, reps }] }` → сверка и новые максимумы  |
+| `POST /workouts`                 | Начать тренировку: `{ sessionId?, readiness? }`; по сессии — всегда одна и та же        |
+| `PUT /workouts/:id/sets`         | Подход: `{ exerciseSlug, setNo, weightKg, reps, rir }`, тот же номер перезаписывается   |
+| `POST /workouts/:id/finish`      | Разбор, новые максимумы (не больше +5% за раз), облегчение следующей, если было тяжело  |
 | `GET /diagnostics`               | Отстающие движения по соотношениям и тесты к ним                                        |
 | `POST /diagnostics/:findingId`   | Результаты тестов `{ results: { testId: число } }` → вывод в «Слабые места»             |
 

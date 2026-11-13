@@ -24,6 +24,11 @@ export async function userToday(userId: string): Promise<string> {
 interface LiftChange {
   testedKg?: number | null | undefined;
   working?: WorkingSet | null | undefined;
+  /**
+   * Максимум, выставленный тренером по журналу (с ограничением роста +5% за раз).
+   * Перекрывает расчёт по рабочему подходу.
+   */
+  oneRmKg?: number | undefined;
 }
 
 /**
@@ -53,7 +58,10 @@ export function mergeLift(
   }
 
   // Старые записи (только oneRmKg) — как рабочий максимум без подробностей.
-  const resolved = resolveOneRm(next) ?? (next.testedKg || next.working ? null : legacy(current));
+  let resolved = resolveOneRm(next) ?? (next.testedKg || next.working ? null : legacy(current));
+  if (change.oneRmKg !== undefined) {
+    resolved = { oneRmKg: change.oneRmKg, estimated: change.oneRmKg !== next.testedKg };
+  }
   if (!resolved) return null;
   const changed =
     current?.oneRmKg !== resolved.oneRmKg ||

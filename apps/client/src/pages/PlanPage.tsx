@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   isSectionFilled,
   REQUIRED_CARD_SECTIONS,
@@ -19,7 +19,7 @@ import { StrengthForm } from '../plan/StrengthForm';
 import { TestForm } from '../plan/TestForm';
 import { Calendar, summarize } from '../plan/Calendar';
 import { addDays, isoWeekday, shortDay } from '../plan/dates';
-import { useCard, useGeneratePlan, usePlan, useReschedule } from '../plan/usePlan';
+import { useCard, useGeneratePlan, usePlan, useReschedule, useStartWorkout } from '../plan/usePlan';
 
 const DAYS_AHEAD = 56;
 const SECTION_NAMES: Record<string, string> = {
@@ -363,6 +363,12 @@ function PlanView({ plan, card, onRebuild, onReschedule }: ViewProps) {
           : 'Собран по правилам.'}
       </p>
 
+      {block.missed > 0 && (
+        <p className="notice notice-stop" role="status">
+          Пропущено тренировок: {block.missed}. Пропуск — минус к прогрессу и сбитая ротация. Сделай
+          пропущенную сейчас («Начать» в ней) или перенеси дни — тренер разложит блок заново.
+        </p>
+      )}
       {block.staleSections.length > 0 && (
         <div className="notice notice-stop" role="status">
           <p>
@@ -518,6 +524,13 @@ function SessionItem({ session: s, past, today, isNext, open, onToggle }: Sessio
         </span>
         <span className="session-meta">
           {gap}
+          {s.status === 'missed'
+            ? ', пропущена'
+            : s.workout?.finished
+              ? ', сделана'
+              : s.workout
+                ? ', начата'
+                : ''}
           {s.phase === 'test'
             ? s.result
               ? ', результат записан'
@@ -556,6 +569,7 @@ function SessionItem({ session: s, past, today, isNext, open, onToggle }: Sessio
             </ol>
           )}
           {s.phase === 'test' && <TestForm session={s} today={today} />}
+          {s.phase !== 'test' && !empty && <WorkoutButton session={s} today={today} />}
         </div>
       )}
     </li>
@@ -608,3 +622,44 @@ const SECTION_TITLES: Record<string, string> = {
   recovery: 'восстановление',
   weakPoints: 'слабые места',
 };
+
+/** Начать, продолжить или открыть разбор тренировки по сессии плана. */
+function WorkoutButton({ session, today }: { session: SessionView; today: string }) {
+  const navigate = useNavigate();
+  const start = useStartWorkout();
+  if (session.workout) {
+    return (
+      <Link to={`/workout/${session.workout.id}`} className="button button-small">
+        {session.workout.finished ? 'Разбор тренировки' : 'Продолжить тренировку'}
+      </Link>
+    );
+  }
+  const label =
+    session.date === today
+      ? 'Начать тренировку'
+      : session.date < today
+        ? 'Сделать сейчас'
+        : 'Начать сейчас, раньше плана';
+  return (
+    <div className="workout-start">
+      <button
+        type="button"
+        className="button button-small"
+        disabled={start.isPending}
+        onClick={() =>
+          start.mutate(
+            { sessionId: session.id },
+            { onSuccess: (data) => navigate(`/workout/${data.workout.id}`) },
+          )
+        }
+      >
+        {start.isPending ? 'Открываю…' : label}
+      </button>
+      {start.isError && (
+        <p className="form-error" role="alert">
+          {start.error instanceof ApiError ? start.error.message : 'Не получилось начать.'}
+        </p>
+      )}
+    </div>
+  );
+}

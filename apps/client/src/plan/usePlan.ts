@@ -6,6 +6,9 @@ import type {
   PlanResponse,
   StrengthUpdate,
   TestResultRequest,
+  WorkoutResponse,
+  WorkoutSetInput,
+  WorkoutSetView,
 } from '@trektren/shared';
 import { api } from '../api/http';
 import { CARD_KEY, VERSIONS_KEY } from '../card/useSaveCard';
@@ -93,6 +96,56 @@ export function useSubmitDiagnostic() {
       void queryClient.invalidateQueries({ queryKey: PLAN_KEY });
       void queryClient.invalidateQueries({ queryKey: CARD_KEY });
       void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
+    },
+  });
+}
+
+export const workoutKey = (id: string) => ['workout', id] as const;
+
+export const useWorkout = (id: string) =>
+  useQuery({ queryKey: workoutKey(id), queryFn: () => api<WorkoutResponse>(`/workouts/${id}`) });
+
+export function useStartWorkout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { sessionId?: string; readiness?: number }) =>
+      api<WorkoutResponse>('/workouts', { method: 'POST', json: input }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(workoutKey(data.workout.id), data);
+      void queryClient.invalidateQueries({ queryKey: PLAN_KEY });
+    },
+  });
+}
+
+export function useSaveSet(workoutId: string) {
+  return useMutation({
+    mutationFn: (input: WorkoutSetInput) =>
+      api<WorkoutSetView>(`/workouts/${workoutId}/sets`, { method: 'PUT', json: input }),
+  });
+}
+
+export function useDeleteSet(workoutId: string) {
+  return useMutation({
+    mutationFn: ({ slug, setNo }: { slug: string; setNo: number }) =>
+      api<void>(`/workouts/${workoutId}/sets/${slug}/${setNo}`, { method: 'DELETE' }),
+  });
+}
+
+export function useFinishWorkout(workoutId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (notes: string) =>
+      api<WorkoutResponse>(`/workouts/${workoutId}/finish`, {
+        method: 'POST',
+        json: notes.trim() ? { notes: notes.trim() } : {},
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(workoutKey(workoutId), data);
+      void queryClient.invalidateQueries({ queryKey: PLAN_KEY });
+      void queryClient.invalidateQueries({ queryKey: CARD_KEY });
+      void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
+      void queryClient.invalidateQueries({ queryKey: DIAGNOSTICS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['day'] });
     },
   });
 }

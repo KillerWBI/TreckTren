@@ -1426,3 +1426,233 @@ button {
 .check-test .input-unit {
   max-width: 180px;
 }
+
+/* Тренировка: крупные поля, чтобы попадать пальцем между подходами */
+
+.workout-date {
+  font-size: var(--t-sm);
+  color: var(--steel);
+}
+
+.workout-start {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.readiness {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.readiness-options {
+  display: grid;
+  gap: 6px;
+}
+
+.readiness-option {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  text-align: left;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.readiness-score {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--t-2xl);
+  line-height: 1;
+}
+
+.rest-timer {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 16px calc(var(--gutter) * -1) 0;
+  padding: 8px var(--gutter);
+  background: var(--iron);
+  color: var(--chalk);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-xl);
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-hint {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--t-sm);
+  opacity: 0.8;
+}
+
+.lift-card {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 2px solid var(--iron);
+}
+
+.lift-card-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  margin-bottom: 8px;
+}
+
+.lift-card-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--t-xl);
+  line-height: 1.1;
+}
+
+.lift-card-load {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--t-xl);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.lift-card-target {
+  grid-column: 1 / -1;
+  font-size: var(--t-sm);
+  color: var(--steel);
+}
+
+.set-rows {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(76px, auto);
+  align-items: end;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.set-row[data-saved] input,
+.set-row[data-saved] select {
+  border-color: var(--plate-green);
+  background: color-mix(in srgb, var(--plate-green) 8%, var(--paper));
+}
+
+.set-no {
+  padding-bottom: 14px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--t-lg);
+  color: var(--steel);
+}
+
+.set-field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.set-label {
+  font-size: var(--t-xs);
+  color: var(--steel);
+}
+
+.set-field input,
+.set-field select {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--iron);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--t-xl);
+  text-align: center;
+}
+
+.set-save {
+  min-height: 52px;
+  padding: 0 10px;
+  border: 1px solid var(--iron);
+  border-radius: var(--radius-control);
+  background: var(--iron);
+  color: var(--chalk);
+  font-weight: 600;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.set-row[data-saved] .set-save {
+  background: var(--plate-green);
+  border-color: var(--plate-green);
+  color: #fff;
+  font-size: var(--t-xl);
+}
+
+.set-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.set-row[data-saved] .set-save:disabled {
+  opacity: 1;
+}
+
+.set-error {
+  grid-column: 2 / -1;
+  font-size: var(--t-xs);
+  color: var(--danger);
+}
+
+.lift-card-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.add-exercise,
+.workout-notes {
+  margin-top: 24px;
+}
+
+.workout-finish {
+  margin-top: 20px;
+}
+
+.next-changes {
+  margin: 0;
+  padding-left: 20px;
+  font-size: var(--t-sm);
+}
+
+.workout-verdicts {
+  margin-top: 24px;
+}
+
+.test-lift[data-verdict='hold'],
+.test-lift[data-verdict='first'] {
+  border-left-color: var(--steel);
+}
+
+.test-lift[data-verdict='heavy'] {
+  border-left-color: var(--plate-yellow);
+}
+
+.test-lift[data-verdict='under'],
+.test-lift[data-verdict='skipped'] {
+  border-left-color: var(--plate-red);
+}

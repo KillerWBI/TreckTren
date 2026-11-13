@@ -126,6 +126,8 @@ export interface SessionView extends Omit<PlannedSession, 'exercises'> {
   date: string;
   status: 'planned' | 'done' | 'missed' | 'moved';
   exercises: SessionExerciseView[];
+  /** Тренировка по этой сессии: начата или завершена. */
+  workout: { id: string; finished: boolean } | null;
   /** Итог проходки, если она уже записана. */
   result: TestResult | null;
 }
@@ -203,6 +205,8 @@ export interface BlockView {
   testDate: string | null;
   /** С какой даты отмечать дни, чтобы проходка попала в план. */
   testFrom: string;
+  /** Прошедшие тренировки блока, которые не сделаны. */
+  missed: number;
   createdAt: string;
 }
 

@@ -70,12 +70,14 @@ interface BlockRow {
   created_at: Date;
 }
 
-interface SessionRow {
+export interface SessionRow {
   id: string;
   date: string;
   status: SessionView['status'];
   planned_json: PlannedSession;
   result_json: TestResult | null;
+  workout_id?: string | null;
+  workout_finished_at?: Date | null;
 }
 
 export async function getPlan(userId: string, ai: AiProvider): Promise<PlanResponse> {
@@ -83,37 +85,67 @@ export async function getPlan(userId: string, ai: AiProvider): Promise<PlanRespo
   const block = await activeBlock(pool, userId);
   if (!block) return { block: null, sessions: [], ai: aiStatus };
 
-  const [{ rows }, { card }, all, staleSections] = await Promise.all([
-    pool.query<SessionRow>(
-      'SELECT id, date, status, planned_json, result_json FROM scheduled_sessions WHERE block_id = $1 ORDER BY date',
-      [block.id],
-    ),
-    getCard(userId),
-    loadExercises(),
+  const [{ rows }, ctx, staleSections, today] = await Promise.all([
+    pool.query<SessionRow>(`${SESSION_SELECT} WHERE s.block_id = $1 ORDER BY s.date`, [block.id]),
+    loadContext(userId),
     changedSince(userId, block.created_at),
+    userToday(userId),
   ]);
-  const exercises = new Map(all.map((e) => [e.slug, e]));
-  // Веса считаются при каждом чтении от текущей карточки: поменял максимум — план уже другой.
-  const maxes = estimateMaxes(card, all);
-  const dumbbellMaxKg = card.equipment?.dumbbellMaxKg;
+  const sessions = rows.map((r) => toSessionView(r, ctx, today));
+  const testDate = sessions.find((x) => x.phase === 'test')?.date ?? null;
+  const missed = sessions.filter((x) => x.status === 'missed').length;
+  return {
+    block: toBlockView(block, staleSections, testDate, missed),
+    sessions,
+    ai: aiStatus,
+  };
+}
 
-  const sessions: SessionView[] = rows.map((r) => ({
+/** Сессия вместе с тренировкой по ней: по ней видно, начата ли тренировка и не пропущена ли. */
+export const SESSION_SELECT = `
+  SELECT s.id, s.date, s.status, s.planned_json, s.result_json,
+         w.id AS workout_id, w.finished_at AS workout_finished_at
+  FROM scheduled_sessions s
+  LEFT JOIN workouts w ON w.session_id = s.id`;
+
+export interface LoadContext {
+  exercises: Map<string, Exercise>;
+  maxes: Map<string, MaxEstimate>;
+  dumbbellMaxKg: number | undefined;
+}
+
+/** Всё, что нужно для весов: упражнения и максимумы по текущей карточке. */
+export async function loadContext(userId: string): Promise<LoadContext> {
+  const [{ card }, all] = await Promise.all([getCard(userId), loadExercises()]);
+  return {
+    exercises: new Map(all.map((e) => [e.slug, e])),
+    // Веса считаются при каждом чтении от текущей карточки: поменял максимум — план уже другой.
+    maxes: estimateMaxes(card, all),
+    dumbbellMaxKg: card.equipment?.dumbbellMaxKg,
+  };
+}
+
+export function toSessionView(r: SessionRow, ctx: LoadContext, today: string): SessionView {
+  const hasWorkout = Boolean(r.workout_id);
+  // Пропущена: день прошёл, тренировки нет, и это не пустой день «после блока».
+  const missed =
+    r.status === 'planned' && !hasWorkout && r.date < today && r.planned_json.exercises.length > 0;
+  return {
     id: r.id,
     date: r.date,
-    status: r.status,
+    status: missed ? 'missed' : r.status,
     result: r.result_json,
+    workout: r.workout_id ? { id: r.workout_id, finished: Boolean(r.workout_finished_at) } : null,
     ...r.planned_json,
     exercises: r.planned_json.exercises.map((x) => {
-      const exercise = exercises.get(x.slug);
+      const exercise = ctx.exercises.get(x.slug);
       return {
         ...x,
         name: exercise?.name ?? x.slug,
-        load: loadFor(x, exercise, maxes.get(x.slug), { dumbbellMaxKg }),
+        load: loadFor(x, exercise, ctx.maxes.get(x.slug), { dumbbellMaxKg: ctx.dumbbellMaxKg }),
       };
     }),
-  }));
-  const testDate = sessions.find((x) => x.phase === 'test')?.date ?? null;
-  return { block: toBlockView(block, staleSections, testDate), sessions, ai: aiStatus };
+  };
 }
 
 /** Разделы карточки, которые человек поменял после построения плана. Силовые не в счёт: веса пересчитываются сами. */
@@ -240,7 +272,8 @@ export async function generatePlan(
         [userId],
       );
       await c.query(
-        `DELETE FROM scheduled_sessions WHERE user_id = $1 AND status = 'planned' AND date >= $2`,
+        `DELETE FROM scheduled_sessions s WHERE s.user_id = $1 AND s.status = 'planned' AND s.date >= $2
+         AND NOT EXISTS (SELECT 1 FROM workouts w WHERE w.session_id = s.id)`,
         [userId, today],
       );
       const { rows } = await c.query<{ id: string }>(
@@ -279,11 +312,15 @@ export async function updateSchedule(
   await withTransaction(async (c) => {
     const block = await activeBlock(c, userId, true);
     if (!block) throw notFound('Сначала построй план');
-    const { rows: past } = await c.query<{ date: string }>(
-      `SELECT date FROM scheduled_sessions WHERE block_id = $1 AND date < $2`,
+    // Прошедшие дни и дни, где тренировка уже начата, остаются как есть.
+    const { rows: kept } = await c.query<{ date: string; started: boolean }>(
+      `SELECT s.date, EXISTS (SELECT 1 FROM workouts w WHERE w.session_id = s.id) AS started
+       FROM scheduled_sessions s WHERE s.block_id = $1
+         AND (s.date < $2 OR EXISTS (SELECT 1 FROM workouts w WHERE w.session_id = s.id))`,
       [block.id, today],
     );
-    const dates = uniqueSorted([...past.map((r) => r.date), ...future]);
+    const busy = new Set(kept.filter((r) => r.started && r.date >= today).map((r) => r.date));
+    const dates = uniqueSorted([...kept.map((r) => r.date), ...future]);
     const start = dates[0]! < block.start_date ? dates[0]! : block.start_date;
     // Раскладываем все даты, чтобы недели и ротация шли от начала блока, а пишем только будущие.
     const laid = layoutSessions(
@@ -292,10 +329,11 @@ export async function updateSchedule(
       exercises,
       start,
       testLifts(block.plan_json.forecast ?? []),
-    ).filter((s) => s.date >= today);
+    ).filter((s) => s.date >= today && !busy.has(s.date));
 
     await c.query(
-      `DELETE FROM scheduled_sessions WHERE block_id = $1 AND status = 'planned' AND date >= $2`,
+      `DELETE FROM scheduled_sessions s WHERE s.block_id = $1 AND s.status = 'planned' AND s.date >= $2
+       AND NOT EXISTS (SELECT 1 FROM workouts w WHERE w.session_id = s.id)`,
       [block.id, today],
     );
     await c.query('UPDATE training_blocks SET start_date = $2 WHERE id = $1', [block.id, start]);
@@ -331,7 +369,12 @@ async function activeBlock(db: PoolClient | typeof pool, userId: string, lock = 
   return rows[0];
 }
 
-function toBlockView(b: BlockRow, staleSections: string[], testDate: string | null): BlockView {
+function toBlockView(
+  b: BlockRow,
+  staleSections: string[],
+  testDate: string | null,
+  missed: number,
+): BlockView {
   const p = b.plan_json;
   return {
     id: b.id,
@@ -350,6 +393,7 @@ function toBlockView(b: BlockRow, staleSections: string[], testDate: string | nu
     forecast: p.forecast ?? [],
     testDate,
     testFrom: deloadWeekStart(p.template, b.start_date),
+    missed,
     createdAt: b.created_at.toISOString(),
   };
 }

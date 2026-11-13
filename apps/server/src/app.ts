@@ -14,6 +14,7 @@ import { cardRouter } from './modules/card/routes.js';
 import { createPlanRouter } from './modules/plan/routes.js';
 import { diagnosticsRouter } from './modules/strength/diagnostics.js';
 import { strengthRouter } from './modules/strength/routes.js';
+import { createWorkoutRouter } from './modules/workouts/routes.js';
 
 enableRussianZodErrors();
 
@@ -49,6 +50,7 @@ export function createApp({ authMode = config.AUTH_MODE, ai = aiFromConfig() }: 
   api.use(createPlanRouter(ai));
   api.use(strengthRouter);
   api.use(diagnosticsRouter);
+  api.use(createWorkoutRouter(ai));
   api.use(notFoundHandler);
   app.use('/api/v1', api);
 
