@@ -6,6 +6,7 @@ import { LoginPage, RegisterPage } from './pages/AuthPages';
 import { CardPage } from './pages/CardPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { PlanPage } from './pages/PlanPage';
+import { TodayPage } from './pages/TodayPage';
 import { WorkoutPage } from './pages/WorkoutPage';
 
 function Splash() {
@@ -59,10 +60,10 @@ function Shell() {
       <Outlet />
       <nav className="tabbar" aria-label="Разделы приложения">
         <NavLink to="/" end>
-          Карточка
+          Сегодня
         </NavLink>
         <NavLink to="/plan">План</NavLink>
-        <NavLink to="/history">История</NavLink>
+        <NavLink to="/card">Карточка</NavLink>
         <NavLink to="/account">Аккаунт</NavLink>
       </nav>
     </div>
@@ -95,7 +96,8 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<CardPage />} />
+        <Route index element={<TodayPage />} />
+        <Route path="/card" element={<CardPage />} />
         <Route path="/plan" element={<PlanPage />} />
         <Route path="/workout/:id" element={<WorkoutPage />} />
         <Route path="/history" element={<HistoryPage />} />

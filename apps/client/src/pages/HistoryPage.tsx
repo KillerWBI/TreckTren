@@ -50,7 +50,7 @@ export function HistoryPage() {
       {versions.length === 0 ? (
         <div className="empty">
           <p>Истории пока нет. Заполни первый раздел карточки — здесь появится версия 1.</p>
-          <Link className="button" to="/">
+          <Link className="button" to="/card">
             Открыть карточку
           </Link>
         </div>

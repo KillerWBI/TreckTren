@@ -13,6 +13,7 @@ export const ERROR_CODES = [
   'REFRESH_INVALID',
   'RATE_LIMITED',
   'FEATURE_DISABLED',
+  'AI_UNAVAILABLE',
   'INTERNAL',
 ] as const;
 

@@ -154,7 +154,7 @@ function Builder({ kind, plan, card, onDone, onCancel }: BuilderProps) {
             Без карточки план не построить. Не хватает:{' '}
             {missing.map((s) => SECTION_NAMES[s] ?? s).join(', ')}.
           </p>
-          <Link to="/" className="button button-small">
+          <Link to="/card" className="button button-small">
             Заполнить карточку
           </Link>
         </div>
@@ -293,7 +293,7 @@ function BuildError({ error }: { error: Error }) {
     return (
       <div className="notice notice-stop" role="alert">
         <p>{error.message}</p>
-        <Link to="/" className="button button-small">
+        <Link to="/card" className="button button-small">
           Открыть карточку
         </Link>
       </div>

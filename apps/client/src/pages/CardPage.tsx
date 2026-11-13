@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { AthleteCard, CardResponse } from '@trektren/shared';
 import { api } from '../api/http';
@@ -86,7 +87,8 @@ export function CardPage() {
       <p className="page-meta">
         {version === 0
           ? 'Карточка ещё не сохранялась.'
-          : `Версия ${version}, обновлена ${formatDateTime(updatedAt)}.`}
+          : `Версия ${version}, обновлена ${formatDateTime(updatedAt)}.`}{' '}
+        {version > 0 && <Link to="/history">История изменений</Link>}
       </p>
       <p className="visually-hidden" aria-live="polite">
         {announcement}
