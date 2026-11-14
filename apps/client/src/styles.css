@@ -3808,3 +3808,38 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
     display: none;
   }
 }
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 10px);
+  z-index: 31;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 10px 14px;
+  border-radius: var(--r-lg);
+  background: var(--ink);
+  color: var(--bg);
+  font-size: var(--t-sm);
+  font-weight: 800;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%);
+  animation: page-in 0.25s var(--ease) both;
+}
+
+.update-banner .link-button {
+  color: var(--bg);
+  opacity: 0.75;
+}
+
+@media (min-width: 1024px) {
+  .update-banner {
+    bottom: 24px;
+    left: calc(50% + var(--sidebar-w) / 2);
+  }
+}

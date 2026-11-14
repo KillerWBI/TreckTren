@@ -8,8 +8,10 @@ export default defineConfig({
     // PWA: ставится на главный экран, оболочка приложения открывается без сети.
     // Данные API не кэшируются service worker'ом: записи без сети копит очередь в IndexedDB.
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'script-defer',
+      // Новая версия не перезагружает страницу сама (можно потерять подход, вписанный
+      // в зале), а показывает плашку «Обновить». Закрыл и открыл приложение — уже новая.
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'TreckTren — тренировки и питание',
@@ -38,6 +40,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
+        clientsClaim: true,
       },
     }),
   ],

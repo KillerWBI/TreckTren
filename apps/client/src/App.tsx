@@ -4,6 +4,7 @@ import { CalendarDays, ChartLine, House, Settings, UserRound } from 'lucide-reac
 import { useAuth } from './auth/AuthContext';
 import { Logo } from './components/Logo';
 import { OfflineBanner } from './offline/OfflineBanner';
+import { UpdateBanner } from './offline/UpdateBanner';
 import { AccountPage } from './pages/AccountPage';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
 import { CardPage } from './pages/CardPage';
@@ -105,6 +106,7 @@ function Shell() {
         ))}
       </nav>
       <OfflineBanner />
+      <UpdateBanner />
     </div>
   );
 }
