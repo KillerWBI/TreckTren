@@ -29,6 +29,14 @@ const artem: AthleteCard = {
       source: 'user',
       updatedAt: '2026-11-12',
     },
+    {
+      id: 'wp2',
+      area: 'Жим штанги стоя',
+      cause: 'Жиму стоя не хватает частоты.',
+      status: 'confirmed',
+      source: 'ai',
+      updatedAt: '2026-11-12',
+    },
   ],
 };
 
@@ -161,6 +169,11 @@ describe('портрет', () => {
     expect(by.get('chest')).toMatchObject({ status: 'good' });
     expect(by.get('chest')!.lifts[0]!.next).toMatchObject({ tier: 'продвинутый', kg: 105 });
     expect(by.get('abs')!.proxy).toBe(true);
+    // «Жим штанги стоя» — это плечи, а не грудь.
+    expect(by.get('shoulders')).toMatchObject({
+      status: 'weak',
+      weak: { area: 'Жим штанги стоя', cause: 'Жиму стоя не хватает частоты' },
+    });
 
     // Утренние взвешивания важнее веса из карточки.
     for (const d of [0, 1, 2]) {

@@ -138,7 +138,7 @@ const ZONES: Array<[RegExp, BodyZone]> = [
 const WEAK_MAP: Array<[RegExp, MuscleGroup[]]> = [
   [/присед|квадри|ног/, ['quads', 'glutes']],
   [/станов|тяга с пола|задн|бицепс бедр/, ['hamstrings', 'back']],
-  [/жим стоя|армейск|дельт|плеч/, ['shoulders']],
+  [/жим[а-яё ]{0,20}стоя|армейск|дельт|плеч|над голов/, ['shoulders']],
   [/жим|груд/, ['chest', 'triceps']],
   [/спин|широч|тяг/, ['back']],
   [/трицепс/, ['triceps']],
@@ -460,10 +460,13 @@ export async function getPortrait(userId: string): Promise<PortraitResponse> {
 
   const weakBy = new Map<MuscleGroup, { area: string; cause: string | null }>();
   for (const w of (card.weakPoints ?? []).filter((x) => x.status !== 'resolved')) {
-    const text = `${w.area} ${w.cause ?? ''}`.toLowerCase();
-    const hit = WEAK_MAP.find(([re]) => re.test(text));
+    // Сначала по названию слабого места, причина — только если название ничего не дало.
+    const area = w.area.toLowerCase();
+    const cause = (w.cause ?? '').toLowerCase();
+    const hit = WEAK_MAP.find(([re]) => re.test(area)) ?? WEAK_MAP.find(([re]) => re.test(cause));
     for (const m of hit?.[1] ?? []) {
-      if (!weakBy.has(m)) weakBy.set(m, { area: w.area, cause: w.cause ?? null });
+      if (!weakBy.has(m))
+        weakBy.set(m, { area: w.area, cause: w.cause?.trim().replace(/[.!]+$/, '') || null });
     }
   }
   const weak = new Set(weakBy.keys());
