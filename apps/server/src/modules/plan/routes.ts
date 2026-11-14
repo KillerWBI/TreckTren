@@ -7,6 +7,7 @@ import {
 import { z } from 'zod';
 import type { AiProvider } from '../../ai/client.js';
 import { requireAuth, userIdOf } from '../../middleware/auth.js';
+import { aiLimiter } from '../../middleware/rate-limit.js';
 import { notFound } from '../../errors.js';
 import { parseBody } from '../../validate.js';
 import { loadExercises, toView } from '../exercises/repo.js';
@@ -23,7 +24,7 @@ export function createPlanRouter(ai: AiProvider) {
     res.json(await plans.getPlan(userIdOf(req), ai));
   });
 
-  router.post('/plan/generate', requireAuth, async (req, res) => {
+  router.post('/plan/generate', requireAuth, aiLimiter, async (req, res) => {
     const body = parseBody(generatePlanRequestSchema, req.body);
     res.json(await plans.generatePlan(userIdOf(req), body, ai));
   });

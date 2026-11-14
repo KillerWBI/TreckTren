@@ -20,9 +20,14 @@ export class AiError extends Error {
   }
 }
 
+/** Задачи, под которые можно поставить свою модель. */
+export type AiTask = 'plan' | 'food' | 'note' | 'review';
+
 export interface JsonRequest<T> {
   /** Имя схемы для response_format. */
   name: string;
+  /** Под какую задачу запрос: выбирает модель из AI_MODEL_<ЗАДАЧА>. */
+  task?: AiTask;
   schema: z.ZodType;
   messages: ChatMessage[];
   /** Проверка ответа: схема плюс доменные правила. Ошибки уходят модели на одно исправление. */
@@ -46,6 +51,9 @@ export interface OpenAiCompatibleOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Модели по задачам; нет — model. */
+  taskModels?: Partial<Record<AiTask, string>>;
+  temperature?: number | undefined;
   jsonMode?: JsonMode;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -60,22 +68,30 @@ const MODE_ORDER: JsonMode[] = ['json_schema', 'json_object', 'none'];
 export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
+  const strict = /anthropic\.com/.test(baseUrl);
   // Режим, который провайдер принял, запоминаем на время жизни процесса.
   let mode: JsonMode = options.jsonMode ?? 'json_schema';
 
   async function call(messages: ChatMessage[], request: JsonRequest<unknown>) {
     const schema = toJsonSchema(request.schema);
     for (;;) {
+      const model = (request.task && options.taskModels?.[request.task]) || options.model;
       const body: Record<string, unknown> = {
-        model: options.model,
+        model,
         // Без json_schema модель не видит схему из response_format — кладём её в промпт.
         messages: mode === 'json_schema' ? messages : withSchemaInPrompt(messages, schema),
-        temperature: 0.4,
         // С запасом: у думающих моделей (Gemini 3) рассуждения тоже считаются в этот лимит.
         max_tokens: request.maxTokens ?? 16_000,
       };
+      if (options.temperature !== undefined) body.temperature = options.temperature;
       if (mode === 'json_schema') {
-        body.response_format = { type: 'json_schema', json_schema: { name: request.name, schema } };
+        // Claude принимает только строгую схему; Gemini строгую с additionalProperties отклоняет.
+        body.response_format = {
+          type: 'json_schema',
+          json_schema: strict
+            ? { name: request.name, schema: strictSchema(schema), strict: true }
+            : { name: request.name, schema },
+        };
       } else if (mode === 'json_object') {
         body.response_format = { type: 'json_object' };
       }
@@ -133,7 +149,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
             : 'ИИ вернул пустой ответ',
         );
       }
-      return { content, model: data.model ?? options.model, tokens: data.usage?.total_tokens ?? 0 };
+      return { content, model: data.model ?? model, tokens: data.usage?.total_tokens ?? 0 };
     }
   }
 
@@ -147,7 +163,8 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
         const reply = await call(messages, request as JsonRequest<unknown>);
         tokens += reply.tokens;
         let errors: string[];
-        const raw = extractJson(reply.content);
+        // В строгом режиме необязательные поля приходят как null — для наших схем это «нет поля».
+        const raw = stripNulls(extractJson(reply.content));
         if (raw === undefined) {
           errors = ['Ответ не является JSON-объектом'];
         } else {
@@ -183,9 +200,26 @@ export function aiFromConfig(): AiProvider {
     baseUrl: config.AI_BASE_URL,
     apiKey: config.AI_API_KEY,
     model: config.AI_MODEL,
+    taskModels: {
+      ...(config.AI_MODEL_PLAN ? { plan: config.AI_MODEL_PLAN } : {}),
+      ...(config.AI_MODEL_FOOD ? { food: config.AI_MODEL_FOOD } : {}),
+      ...(config.AI_MODEL_NOTE ? { note: config.AI_MODEL_NOTE } : {}),
+      ...(config.AI_MODEL_REVIEW ? { review: config.AI_MODEL_REVIEW } : {}),
+    },
+    temperature: config.AI_TEMPERATURE,
     jsonMode: config.AI_JSON_MODE,
     timeoutMs: config.AI_TIMEOUT_MS,
   });
+}
+
+export function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripNulls);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, v]) => v !== null)
+      .map(([k, v]) => [k, stripNulls(v)]),
+  );
 }
 
 /** JSON из ответа модели: без ```-обёрток и текста вокруг. */
@@ -238,6 +272,38 @@ function simplify(node: unknown): unknown {
     }
   }
   return result;
+}
+
+/**
+ * Строгая схема (strict: true): у каждого объекта все поля обязательны и лишние запрещены.
+ * Необязательные поля становятся «тип или null» — так требует строгий режим.
+ */
+export function strictSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(strictSchema);
+  if (typeof node !== 'object' || node === null) return node;
+  const n = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(n)) {
+    out[k] = k === 'properties' ? v : strictSchema(v);
+  }
+  if (n.type === 'object' && n.properties && typeof n.properties === 'object') {
+    const props = n.properties as Record<string, unknown>;
+    const required = new Set((n.required as string[] | undefined) ?? []);
+    out.properties = Object.fromEntries(
+      Object.entries(props).map(([k, v]) => {
+        const child = strictSchema(v) as Record<string, unknown>;
+        return [k, required.has(k) ? child : nullable(child)];
+      }),
+    );
+    out.required = Object.keys(props);
+    out.additionalProperties = false;
+  }
+  return out;
+}
+
+function nullable(schema: Record<string, unknown>): Record<string, unknown> {
+  if (typeof schema.type === 'string') return { ...schema, type: [schema.type, 'null'] };
+  return { anyOf: [schema, { type: 'null' }] };
 }
 
 function withSchemaInPrompt(

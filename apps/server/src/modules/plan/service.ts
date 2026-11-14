@@ -200,6 +200,7 @@ export async function generatePlan(
     try {
       const result = await ai.generateJson<BlockTemplate>({
         name: 'block_template',
+        task: 'plan',
         schema: blockTemplateSchema,
         messages: buildPlanMessages({
           card,

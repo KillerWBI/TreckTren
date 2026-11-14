@@ -360,6 +360,7 @@ async function aiCoachNote(
   try {
     const result = await ai.generateJson({
       name: 'workout_note',
+      task: 'note',
       schema: noteSchema,
       maxTokens: 4000,
       messages: [

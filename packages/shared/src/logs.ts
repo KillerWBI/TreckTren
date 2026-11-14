@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { SessionView } from './plan.js';
+import type { WellbeingView } from './progress.js';
 
 const isoDate = z.iso.date();
 const slug = z.string().regex(/^[a-z0-9-]{2,64}$/);
@@ -235,4 +236,5 @@ export interface DayResponse {
   /** Частые приёмы пищи — повторить одним нажатием. */
   recentMeals: Array<{ title: string; items: MealItem[]; totals: Macros; times: number }>;
   calorieAdjust: number;
+  wellbeing: WellbeingView;
 }

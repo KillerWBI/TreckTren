@@ -6,12 +6,14 @@ import {
   stepsInputSchema,
   TIMES_OF_DAY,
   weightInputSchema,
+  wellbeingInputSchema,
   type TimeOfDay,
 } from '@trektren/shared';
 import { z } from 'zod';
 import type { AiProvider } from '../../ai/client.js';
 import { notFound } from '../../errors.js';
 import { requireAuth, userIdOf } from '../../middleware/auth.js';
+import { aiLimiter } from '../../middleware/rate-limit.js';
 import { parseBody } from '../../validate.js';
 import * as day from './service.js';
 
@@ -52,6 +54,13 @@ export function createDayRouter(ai: AiProvider) {
     res.json(await day.getDay(userIdOf(req), date));
   });
 
+  router.put('/wellbeing/:date', requireAuth, async (req, res) => {
+    const date = dateParam(req.params.date);
+    const body = parseBody(wellbeingInputSchema, req.body);
+    await day.putWellbeing(userIdOf(req), date, body);
+    res.json(await day.getDay(userIdOf(req), date));
+  });
+
   router.post('/meals', requireAuth, async (req, res) => {
     const body = parseBody(mealInputSchema, req.body);
     await day.addMeal(userIdOf(req), body);
@@ -63,7 +72,7 @@ export function createDayRouter(ai: AiProvider) {
     res.status(204).end();
   });
 
-  router.post('/meals/parse', requireAuth, async (req, res) => {
+  router.post('/meals/parse', requireAuth, aiLimiter, async (req, res) => {
     const body = parseBody(mealParseSchema, req.body);
     res.json(await day.parseMeal(userIdOf(req), body.text, ai));
   });

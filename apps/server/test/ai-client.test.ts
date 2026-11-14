@@ -176,3 +176,50 @@ describe('ИИ-клиент', () => {
     expect(extractJson('{битый')).toBeUndefined();
   });
 });
+
+describe('ИИ-клиент: модели по задачам и Claude', () => {
+  it('модель задачи важнее общей; температура не передаётся, если не задана', async () => {
+    const { impl, calls } = fakeFetch([reply('{"answer": 1}'), reply('{"answer": 2}')]);
+    const ai = openAiCompatible({
+      baseUrl: 'https://ai.example/v1',
+      apiKey: 'k',
+      model: 'base-model',
+      taskModels: { food: 'food-model' },
+      fetchImpl: impl,
+    });
+    await ai.generateJson({ ...request, task: 'food' });
+    await ai.generateJson({ ...request, task: 'plan' });
+    expect(calls.map((c) => c.body.model)).toEqual(['food-model', 'base-model']);
+    expect(calls[0]!.body).not.toHaveProperty('temperature');
+  });
+
+  it('Anthropic: строгая схема, null в ответе — как отсутствие поля', async () => {
+    const schema = z.object({ answer: z.number(), note: z.string().optional() });
+    const { impl, calls } = fakeFetch([reply('{"answer": 5, "note": null}')]);
+    const ai = openAiCompatible({
+      baseUrl: 'https://api.anthropic.com/v1/',
+      apiKey: 'k',
+      model: 'claude-haiku-5-5',
+      fetchImpl: impl,
+    });
+    const result = await ai.generateJson({
+      name: 'x',
+      schema,
+      messages: request.messages,
+      validate: (raw) => {
+        const r = schema.safeParse(raw);
+        return r.success ? { ok: true, value: r.data } : { ok: false, errors: ['bad'] };
+      },
+    });
+    expect(result.value).toEqual({ answer: 5 });
+    const format = calls[0]!.body.response_format as {
+      json_schema: { strict: boolean; schema: Record<string, unknown> };
+    };
+    expect(format.json_schema.strict).toBe(true);
+    expect(format.json_schema.schema).toMatchObject({
+      additionalProperties: false,
+      required: ['answer', 'note'],
+      properties: { note: { type: ['string', 'null'] } },
+    });
+  });
+});

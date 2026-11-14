@@ -10,6 +10,7 @@ import {
   type PlannedSession,
   type SessionView,
   type TimeOfDay,
+  type WellbeingInput,
 } from '@trektren/shared';
 import { AiError, type AiProvider } from '../../ai/client.js';
 import { config } from '../../config.js';
@@ -99,38 +100,39 @@ function toMeal(r: MealRow): MealView {
 export async function getDay(userId: string, date: string): Promise<DayResponse> {
   await checkDate(userId, date);
   const today = await userToday(userId);
-  const [{ card }, profile, weights, steps, meals, session, workout, recent] = await Promise.all([
-    getCard(userId),
-    pool.query<{ calorie_adjust: number; calorie_adjust_at: string | null }>(
-      'SELECT calorie_adjust, calorie_adjust_at FROM profiles WHERE user_id = $1',
-      [userId],
-    ),
-    pool.query<WeightRow>(
-      `SELECT date, time_of_day, weight_kg FROM weight_logs
+  const [{ card }, profile, weights, steps, meals, session, workout, recent, wellbeing] =
+    await Promise.all([
+      getCard(userId),
+      pool.query<{ calorie_adjust: number; calorie_adjust_at: string | null }>(
+        'SELECT calorie_adjust, calorie_adjust_at FROM profiles WHERE user_id = $1',
+        [userId],
+      ),
+      pool.query<WeightRow>(
+        `SELECT date, time_of_day, weight_kg FROM weight_logs
        WHERE user_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date`,
-      [userId, addDays(date, -42), date],
-    ),
-    pool.query<{ steps: number }>('SELECT steps FROM step_logs WHERE user_id = $1 AND date = $2', [
-      userId,
-      date,
-    ]),
-    pool.query<MealRow>(
-      `${MEAL_SELECT} WHERE m.user_id = $1 AND m.date = $2 ORDER BY m.created_at`,
-      [userId, date],
-    ),
-    pool.query<{ id: string; status: string; planned_json: PlannedSession }>(
-      `SELECT s.id, s.status, s.planned_json FROM scheduled_sessions s
+        [userId, addDays(date, -42), date],
+      ),
+      pool.query<{ steps: number }>(
+        'SELECT steps FROM step_logs WHERE user_id = $1 AND date = $2',
+        [userId, date],
+      ),
+      pool.query<MealRow>(
+        `${MEAL_SELECT} WHERE m.user_id = $1 AND m.date = $2 ORDER BY m.created_at`,
+        [userId, date],
+      ),
+      pool.query<{ id: string; status: string; planned_json: PlannedSession }>(
+        `SELECT s.id, s.status, s.planned_json FROM scheduled_sessions s
        JOIN training_blocks b ON b.id = s.block_id AND b.status = 'active'
        WHERE s.user_id = $1 AND s.date = $2 LIMIT 1`,
-      [userId, date],
-    ),
-    pool.query<{ id: string; started_at: Date; finished_at: Date | null }>(
-      `SELECT id, started_at, finished_at FROM workouts WHERE user_id = $1 AND date = $2
+        [userId, date],
+      ),
+      pool.query<{ id: string; started_at: Date; finished_at: Date | null }>(
+        `SELECT id, started_at, finished_at FROM workouts WHERE user_id = $1 AND date = $2
        ORDER BY started_at DESC LIMIT 1`,
-      [userId, date],
-    ),
-    pool.query<MealRow & { times: number }>(
-      `SELECT DISTINCT ON (lower(m.raw_text)) m.id::text, m.meal_type, m.input_type, m.raw_text, m.kcal,
+        [userId, date],
+      ),
+      pool.query<MealRow & { times: number }>(
+        `SELECT DISTINCT ON (lower(m.raw_text)) m.id::text, m.meal_type, m.input_type, m.raw_text, m.kcal,
               m.protein_g, m.fat_g, m.carbs_g, m.created_at,
               (SELECT count(*)::int FROM meals x WHERE x.user_id = m.user_id
                  AND lower(x.raw_text) = lower(m.raw_text) AND x.date > $2) AS times,
@@ -139,9 +141,17 @@ export async function getDay(userId: string, date: string): Promise<DayResponse>
                FROM meal_items i WHERE i.meal_id = m.id) AS items
        FROM meals m WHERE m.user_id = $1 AND m.date > $2 AND m.raw_text IS NOT NULL
        ORDER BY lower(m.raw_text), m.created_at DESC`,
-      [userId, addDays(today, -30)],
-    ),
-  ]);
+        [userId, addDays(today, -30)],
+      ),
+      pool.query<{
+        sleep_hours: number | null;
+        sleep_score: number | null;
+        wellbeing_score: number | null;
+      }>(
+        'SELECT sleep_hours, sleep_score, wellbeing_score FROM wellbeing_logs WHERE user_id = $1 AND date = $2',
+        [userId, date],
+      ),
+    ]);
 
   const adjust = profile.rows[0]?.calorie_adjust ?? 0;
   const trend = computeTrend({
@@ -209,6 +219,11 @@ export async function getDay(userId: string, date: string): Promise<DayResponse>
         return { title: meal.title, items: meal.items, totals: meal.totals, times: r.times };
       }),
     calorieAdjust: adjust,
+    wellbeing: {
+      sleepHours: wellbeing.rows[0]?.sleep_hours ?? null,
+      sleepScore: wellbeing.rows[0]?.sleep_score ?? null,
+      wellbeingScore: wellbeing.rows[0]?.wellbeing_score ?? null,
+    },
   };
 }
 
@@ -353,6 +368,7 @@ export async function parseMeal(
   try {
     const result = await ai.generateJson<ParsedFood>({
       name: 'meal',
+      task: 'food',
       schema: parsedFoodSchema,
       maxTokens: 6000,
       messages: [
@@ -408,5 +424,25 @@ async function recordUsage(userId: string, today: string, tokens: number) {
      ON CONFLICT (user_id, date, kind)
      DO UPDATE SET requests = ai_usage.requests + 1, tokens = ai_usage.tokens + EXCLUDED.tokens`,
     [userId, today, tokens],
+  );
+}
+
+/** Сон и самочувствие за день: пришедшие поля меняются, null стирает, остальное не трогается. */
+export async function putWellbeing(userId: string, date: string, input: WellbeingInput) {
+  await checkDate(userId, date);
+  const cols = {
+    sleep_hours: input.sleepHours,
+    sleep_score: input.sleepScore,
+    wellbeing_score: input.wellbeingScore,
+  };
+  const set = Object.entries(cols).filter(([, v]) => v !== undefined);
+  if (set.length === 0) return;
+  const names = set.map(([k]) => k);
+  const values = set.map(([, v]) => v);
+  await pool.query(
+    `INSERT INTO wellbeing_logs (user_id, date, ${names.join(', ')})
+     VALUES ($1, $2, ${names.map((_, i) => `$${i + 3}`).join(', ')})
+     ON CONFLICT (user_id, date) DO UPDATE SET ${names.map((n) => `${n} = EXCLUDED.${n}`).join(', ')}`,
+    [userId, date, ...values],
   );
 }

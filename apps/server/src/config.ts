@@ -30,7 +30,15 @@ const envSchema = z.object({
     z.string().optional(),
   ),
   AI_BASE_URL: z.url().default('https://generativelanguage.googleapis.com/v1beta/openai'),
-  AI_MODEL: z.string().min(1).default('gemini-3.5-flash'),
+  // gemini-3.5-flash устарела (Google перенаправляет на 3.6); 3.8 Flash — с бесплатным уровнем.
+  AI_MODEL: z.string().min(1).default('gemini-3.8-flash'),
+  /** Своя модель на задачу; пусто — AI_MODEL. */
+  AI_MODEL_PLAN: z.string().min(1).optional(),
+  AI_MODEL_FOOD: z.string().min(1).optional(),
+  AI_MODEL_NOTE: z.string().min(1).optional(),
+  AI_MODEL_REVIEW: z.string().min(1).optional(),
+  /** Не задано — температура не передаётся (новые Claude не принимают значения ниже 1). */
+  AI_TEMPERATURE: z.coerce.number().min(0).max(2).optional(),
   /** json_schema → json_object → none: клиент сам понижает режим, если провайдер его не знает. */
   AI_JSON_MODE: z.enum(['json_schema', 'json_object', 'none']).default('json_schema'),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(90_000),

@@ -3,6 +3,7 @@ import { finishWorkoutSchema, startWorkoutSchema, workoutSetSchema } from '@trek
 import type { AiProvider } from '../../ai/client.js';
 import { notFound } from '../../errors.js';
 import { requireAuth, userIdOf } from '../../middleware/auth.js';
+import { aiLimiter } from '../../middleware/rate-limit.js';
 import { parseBody } from '../../validate.js';
 import * as workouts from './service.js';
 
@@ -30,7 +31,7 @@ export function createWorkoutRouter(ai: AiProvider) {
     res.status(204).end();
   });
 
-  router.post('/workouts/:id/finish', requireAuth, async (req, res) => {
+  router.post('/workouts/:id/finish', requireAuth, aiLimiter, async (req, res) => {
     const body = parseBody(finishWorkoutSchema, req.body ?? {});
     res.json(await workouts.finishWorkout(userIdOf(req), String(req.params.id), body.notes, ai));
   });
