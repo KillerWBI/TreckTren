@@ -22,6 +22,7 @@ import {
   injuryPoint,
   kneecaps,
   muscleGeometry,
+  partsOf,
   shapeOf,
   skinParts,
   unflatten,
@@ -98,11 +99,23 @@ interface FigureProps {
   data: PortraitResponse;
   status: Map<MuscleGroup, MuscleStatus>;
   selected: MuscleGroup | null;
-  onSelect: (group: MuscleGroup) => void;
+  /** Какую именно мышцу группы нажали — её название. */
+  part: string | null;
+  onSelect: (group: MuscleGroup, part?: string) => void;
   empty: boolean;
 }
 
-function Figure({ view, shape, ghost, data, status, selected, onSelect, empty }: FigureProps) {
+function Figure({
+  view,
+  shape,
+  ghost,
+  data,
+  status,
+  selected,
+  part,
+  onSelect,
+  empty,
+}: FigureProps) {
   const defs: MuscleDef[] = view === 'front' ? FRONT : BACK;
   const skin = skinParts(shape);
   const top = crownY(shape);
@@ -168,11 +181,16 @@ function Figure({ view, shape, ghost, data, status, selected, onSelect, empty }:
               data-status={st ?? 'decor'}
               data-selected={(m.group !== null && m.group === selected) || undefined}
               data-dim={(selected !== null && m.group !== selected) || undefined}
-              onClick={m.group ? () => onSelect(m.group!) : undefined}
+              data-part={(m.group === selected && m.name === part) || undefined}
+              onClick={m.group ? () => onSelect(m.group!, m.name) : undefined}
             >
               <path className="m-fill" d={m.outline} />
               <path className="m-fibers" d={m.fibers} />
-              {m.group && <title>{`${MUSCLE_LABELS[m.group]}: ${STATUS_TEXT[st!]}`}</title>}
+              <title>
+                {m.group
+                  ? `${m.name} — ${MUSCLE_LABELS[m.group].toLowerCase()}: ${STATUS_TEXT[st!]}`
+                  : m.name}
+              </title>
             </g>
           );
         })}
@@ -220,6 +238,7 @@ const NEUTRAL: Shape['levels'] = {
   quads: null,
   hamstrings: null,
   glutes: null,
+  adductors: null,
   calves: null,
 };
 
@@ -232,6 +251,7 @@ export function Portrait() {
   const query = usePortrait();
   const [compare, setCompare] = useState(false);
   const [selected, setSelected] = useState<MuscleGroup | null>(null);
+  const [part, setPart] = useState<string | null>(null);
   // Телефон: одна большая фигура и переключатель — мелкие мышцы так легче нажать.
   const [view, setView] = useState<'front' | 'back'>('front');
   const sideRef = useRef<HTMLDivElement>(null);
@@ -253,8 +273,9 @@ export function Portrait() {
       );
   const shape = useTweenShape(target);
 
-  const select = (group: MuscleGroup | null) => {
+  const select = (group: MuscleGroup | null, name?: string) => {
     setSelected(group);
+    setPart(name ?? null);
     if (group && !(view === 'front' ? IN_FRONT : IN_BACK).has(group)) {
       setView(view === 'front' ? 'back' : 'front');
     }
@@ -346,6 +367,7 @@ export function Portrait() {
                 data={data}
                 status={status}
                 selected={selected}
+                part={part}
                 onSelect={select}
                 empty={empty}
               />
@@ -359,6 +381,7 @@ export function Portrait() {
                 data={data}
                 status={status}
                 selected={selected}
+                part={part}
                 onSelect={select}
                 empty={empty}
               />
@@ -461,7 +484,9 @@ export function Portrait() {
             <MuscleSheet
               detail={detail}
               median={data.medianLevel}
-              onBack={() => setSelected(null)}
+              part={part}
+              onPart={setPart}
+              onBack={() => select(null)}
             />
           ) : (
             <MuscleOverview muscles={data.muscles} onSelect={select} />
@@ -532,12 +557,17 @@ const SOURCE_TEXT: Record<NonNullable<MuscleLift['source']>, string> = {
 function MuscleSheet({
   detail: d,
   median,
+  part,
+  onPart,
   onBack,
 }: {
   detail: MuscleDetail;
   median: number | null;
+  part: string | null;
+  onPart: (name: string | null) => void;
   onBack: () => void;
 }) {
+  const parts = partsOf(d.group);
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus({ preventScroll: true }), [d.group]);
   const withData = d.lifts.filter((l) => l.oneRmKg !== null);
@@ -598,6 +628,30 @@ function MuscleSheet({
       )}
 
       <p className="muscle-summary">{d.summary}</p>
+
+      {parts.length > 1 && (
+        <div className="muscle-parts">
+          <h4 className="muscle-sub">Из чего состоит</h4>
+          <ul>
+            {parts.map((name) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  className="chip"
+                  aria-pressed={name === part}
+                  onClick={() => onPart(name === part ? null : name)}
+                >
+                  {name}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="field-hint">
+            Нажми на часть — она подсветится на фигуре. Оценка общая на группу: отдельного теста на
+            каждую часть нет.
+          </p>
+        </div>
+      )}
 
       {d.catchUp && (
         <div className="muscle-goal">

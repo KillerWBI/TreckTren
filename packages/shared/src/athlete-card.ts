@@ -33,6 +33,7 @@ export const MUSCLE_GROUPS = [
   'quads',
   'hamstrings',
   'glutes',
+  'adductors',
   'calves',
 ] as const;
 

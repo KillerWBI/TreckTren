@@ -57,10 +57,10 @@ type Zone = 'full' | 'upper' | 'lower' | 'push' | 'pull' | 'legs';
 const ZONE_MUSCLES: Record<Zone, string[] | null> = {
   full: null,
   upper: ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'traps', 'abs'],
-  lower: ['quads', 'hamstrings', 'glutes', 'calves', 'abs'],
+  lower: ['quads', 'hamstrings', 'glutes', 'adductors', 'calves', 'abs'],
   push: ['chest', 'shoulders', 'triceps', 'abs'],
   pull: ['back', 'biceps', 'traps', 'forearms', 'abs'],
-  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abs'],
+  legs: ['quads', 'hamstrings', 'glutes', 'adductors', 'calves', 'abs'],
 };
 
 interface SplitDef {

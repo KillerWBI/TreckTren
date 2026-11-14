@@ -99,6 +99,7 @@ export function muscleLevels(
   const row = lv('barbell-row');
   const shoulders = ohp ?? (bench !== null ? r2(bench * 0.9) : null);
   const back = avg([row, dead]);
+  const legs = avg([squat, dead]);
   return {
     chest: bench,
     shoulders,
@@ -110,6 +111,7 @@ export function muscleLevels(
     quads: squat,
     glutes: avg([squat, dead]),
     hamstrings: dead,
+    adductors: legs !== null ? r2(legs * 0.9) : null,
     calves: squat !== null ? r2(squat * 0.85) : null,
     abs: avg([squat, bench, dead, ohp, row]),
   };
@@ -136,6 +138,7 @@ const ZONES: Array<[RegExp, BodyZone]> = [
 
 /** Слабое место словами → мышцы: «присед» — квадрицепсы, «жим» — грудь и трицепс… */
 const WEAK_MAP: Array<[RegExp, MuscleGroup[]]> = [
+  [/приводящ|внутренн[а-яё ]{0,12}бедр|пах/, ['adductors']],
   [/присед|квадри|ног/, ['quads', 'glutes']],
   [/станов|тяга с пола|задн|бицепс бедр/, ['hamstrings', 'back']],
   [/жим[а-яё ]{0,20}стоя|армейск|дельт|плеч|над голов/, ['shoulders']],
@@ -157,14 +160,22 @@ const MUSCLE_NAMES: Record<MuscleGroup, string> = {
   biceps: 'Бицепс',
   triceps: 'Трицепс',
   forearms: 'Предплечья',
-  traps: 'Трапеции',
+  traps: 'Трапеции и шея',
   abs: 'Пресс',
   quads: 'Квадрицепс',
   hamstrings: 'Бицепс бедра',
   glutes: 'Ягодицы',
-  calves: 'Икры',
+  adductors: 'Приводящие',
+  calves: 'Икры и голень',
 };
-const PLURAL = new Set<MuscleGroup>(['shoulders', 'forearms', 'traps', 'glutes', 'calves']);
+const PLURAL = new Set<MuscleGroup>([
+  'shoulders',
+  'forearms',
+  'traps',
+  'glutes',
+  'adductors',
+  'calves',
+]);
 
 /** По каким базовым движениям судим о мышце. proxy — своего теста нет. */
 const MUSCLE_LIFTS: Record<MuscleGroup, { lifts: string[]; proxy: boolean }> = {
@@ -178,6 +189,7 @@ const MUSCLE_LIFTS: Record<MuscleGroup, { lifts: string[]; proxy: boolean }> = {
   quads: { lifts: ['barbell-back-squat'], proxy: false },
   glutes: { lifts: ['barbell-back-squat', 'deadlift'], proxy: false },
   hamstrings: { lifts: ['deadlift'], proxy: false },
+  adductors: { lifts: ['barbell-back-squat', 'deadlift'], proxy: true },
   calves: { lifts: ['barbell-back-squat'], proxy: true },
   abs: {
     lifts: ['barbell-back-squat', 'bench-press', 'deadlift', 'overhead-press', 'barbell-row'],
@@ -193,7 +205,7 @@ const ZONE_MUSCLES: Record<BodyZone, MuscleGroup[]> = {
   wrist: ['forearms'],
   chest: ['chest'],
   lowerBack: ['back', 'glutes', 'hamstrings'],
-  hip: ['glutes', 'quads'],
+  hip: ['glutes', 'quads', 'adductors'],
   knee: ['quads', 'hamstrings', 'calves'],
   ankle: ['calves'],
 };

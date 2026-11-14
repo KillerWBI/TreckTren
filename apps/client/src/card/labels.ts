@@ -29,12 +29,13 @@ export const MUSCLE_LABELS: Labels<typeof MUSCLE_GROUPS> = {
   biceps: 'Бицепс',
   triceps: 'Трицепс',
   forearms: 'Предплечья',
-  traps: 'Трапеции',
+  traps: 'Трапеции и шея',
   abs: 'Пресс',
   quads: 'Квадрицепс',
   hamstrings: 'Бицепс бедра',
   glutes: 'Ягодицы',
-  calves: 'Икры',
+  adductors: 'Приводящие',
+  calves: 'Икры и голень',
 };
 
 export const EQUIPMENT_LABELS: Labels<typeof EQUIPMENT_ITEMS> = {

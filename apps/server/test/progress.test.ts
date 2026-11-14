@@ -141,7 +141,9 @@ describe('портрет', () => {
 
     // По нажатию на мышцу: статус, движение, цель, упражнения.
     const by = new Map(p.muscles.map((m) => [m.group, m]));
-    expect(p.muscles).toHaveLength(12);
+    expect(p.muscles).toHaveLength(13);
+    expect(by.get('adductors')).toMatchObject({ proxy: true });
+    expect(by.get('adductors')!.exercises.map((e) => e.slug)).toContain('hip-adduction');
     const quads = by.get('quads')!;
     expect(quads).toMatchObject({ status: 'weak', priority: true, proxy: false });
     expect(quads.weak).toMatchObject({ area: 'присед со штангой' });

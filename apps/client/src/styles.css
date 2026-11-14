@@ -3843,3 +3843,23 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
     left: calc(50% + var(--sidebar-w) / 2);
   }
 }
+
+.m[data-part] .m-fill {
+  stroke: var(--blue);
+  stroke-width: 2.4;
+}
+
+.muscle-parts ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.muscle-parts .chip {
+  min-height: 34px;
+  padding: 5px 12px;
+  font-size: var(--t-xs);
+}
