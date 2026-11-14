@@ -59,13 +59,11 @@ export function CardPage() {
           : `Заполнено ${filled.length + (card.strength?.lifts && Object.keys(card.strength.lifts).length > 0 ? 1 : 0)} из ${SECTIONS.length + 1}. Чем больше тренер знает, тем точнее план и норма.`}
       </p>
 
-      <div className="cols cols-mixed card-cols">
+      <Portrait />
+
+      <div className="cols cols-even card-cols">
         <div className="col">
-          <section
-            className="section-group"
-            aria-labelledby="required-heading"
-            style={{ order: 2 }}
-          >
+          <section className="section-group" aria-labelledby="required-heading">
             <h2 id="required-heading" className="group-title">
               Обязательное для первого плана
             </h2>
@@ -80,27 +78,20 @@ export function CardPage() {
               if (saved) setAnnouncement('Силовые сохранены');
             }}
           />
-          <section
-            className="section-group"
-            aria-labelledby="optional-heading"
-            style={{ order: 4 }}
-          >
+        </div>
+        <div className="col">
+          <section className="section-group" aria-labelledby="optional-heading">
             <h2 id="optional-heading" className="group-title">
               Можно заполнить позже
             </h2>
             {rows(false)}
           </section>
-          <p className="page-meta" style={{ order: 5 }}>
+          <p className="page-meta">
             {version === 0
               ? 'Профиль ещё не сохранялся.'
               : `Версия ${version}, обновлена ${formatDateTime(updatedAt)}.`}{' '}
             {version > 0 && <Link to="/history">История изменений</Link>}
           </p>
-        </div>
-        <div className="col sticky">
-          <div className="slot" style={{ order: 1 }}>
-            <Portrait />
-          </div>
         </div>
       </div>
       <p className="visually-hidden" aria-live="polite">
@@ -175,7 +166,7 @@ function StrengthRow({
   const names = new Map((exercises.data ?? []).map((e) => [e.slug, e.name]));
   const summary = strengthSummary(card, names);
   return (
-    <section className="section-group" aria-labelledby="strength-heading" style={{ order: 3 }}>
+    <section className="section-group" aria-labelledby="strength-heading">
       <h2 id="strength-heading" className="group-title">
         Силовые
       </h2>

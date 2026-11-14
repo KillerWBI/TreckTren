@@ -20,6 +20,65 @@ export interface PortraitBody {
   levels: Record<MuscleGroup, number | null>;
 }
 
+/**
+ * Состояние мышцы на портрете:
+ * good — в норме относительно остального тела; behind — немного отстаёт;
+ * weak — сильно отстаёт или отмечена слабым местом; unknown — данных нет.
+ */
+export type MuscleStatus = 'good' | 'behind' | 'weak' | 'unknown';
+
+/** Базовое движение, по которому оценена мышца. */
+export interface MuscleLift {
+  slug: string;
+  name: string;
+  oneRmKg: number | null;
+  /** tested — проверенный максимум, working — по рабочему подходу, estimated — расчёт. */
+  source: 'tested' | 'working' | 'estimated' | null;
+  /** Максимум в долях веса тела. */
+  ratio: number | null;
+  /** Ступень по нормативам: новичок, средний… */
+  tier: string | null;
+  /** Следующая ступень: сколько нужно поднять. */
+  next: { tier: string; kg: number; ratio: number } | null;
+  /** Цель человека из «Силовых». */
+  goalKg: number | null;
+}
+
+/** Упражнение на эту мышцу из доступных человеку. */
+export interface MuscleExercise {
+  slug: string;
+  name: string;
+  /** Мышца — главная в упражнении, а не помощник. */
+  primary: boolean;
+  /** Стоит в ближайших тренировках плана. */
+  inPlan: boolean;
+  /** Рабочий вес на 8–10 повторов с запасом 2; null — свой вес или подбор на тренажёре. */
+  workKg: number | null;
+  perHand: boolean;
+  kind: 'kg' | 'bodyweight' | 'calibrate';
+}
+
+export interface MuscleDetail {
+  group: MuscleGroup;
+  level: number | null;
+  status: MuscleStatus;
+  /** Оценка не своим тестом, а через базовые движения (пресс, икры, предплечья). */
+  proxy: boolean;
+  levelWord: string;
+  priority: boolean;
+  /** Слабое место из профиля, если оно про эту мышцу. */
+  weak: { area: string; cause: string | null } | null;
+  /** Травма рядом с этой мышцей. */
+  injury: string | null;
+  lifts: MuscleLift[];
+  /** Чтобы догнать остальное тело: какое движение и до скольки. */
+  catchUp: { slug: string; name: string; kg: number; gapKg: number } | null;
+  summary: string;
+  exercises: MuscleExercise[];
+  /** Главные упражнения на эту мышцу, которые убраны из-за травмы. */
+  blockedByInjury: string[];
+}
+
 export interface PortraitResponse {
   body: PortraitBody;
   /** Откуда вес: средняя утреннего за 7 дней, последнее взвешивание или карточка. */
@@ -35,6 +94,10 @@ export interface PortraitResponse {
   completeness: { filled: number; total: number };
   /** Каким был в начале пути — для сравнения «было / стало». */
   start: { date: string; body: PortraitBody } | null;
+  /** Подробно по каждой мышце: статус, движения, цели и упражнения. */
+  muscles: MuscleDetail[];
+  /** Средний уровень мышц — с ним сравнивается каждая. */
+  medianLevel: number | null;
 }
 
 /* Сон и самочувствие ----------------------------------------------------- */

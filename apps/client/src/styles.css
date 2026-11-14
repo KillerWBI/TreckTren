@@ -27,14 +27,16 @@
   --blue: #2f7cf6;
   --blue-soft: #e8f1ff;
 
-  /* Мышцы на портрете: от слабых к сильным. */
-  --m-none: #e3e5ea;
-  --m-low: #ffd6c2;
-  --m-mid: #ff9b6a;
-  --m-high: #ff6a2b;
-  --m-top: #c8420c;
-  --body: #eceef3;
-  --body-line: #c9ccd5;
+  /* Портрет: кожа и состояние мышц. */
+  --skin: #f1e4da;
+  --skin-line: #b9a597;
+  --st-good: #2fb872;
+  --st-behind: #f6b01e;
+  --st-weak: #ec4a3c;
+  --st-unknown: #ffffff;
+  --st-decor: #e3cfc2;
+  --fiber: rgba(30, 20, 15, 0.22);
+  --muscle-edge: rgba(255, 255, 255, 0.85);
 
   --focus: #2f7cf6;
   --font: 'Nunito Variable', 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -82,13 +84,15 @@
     --red-soft: rgba(255, 90, 80, 0.14);
     --blue: #5b9bff;
     --blue-soft: rgba(91, 155, 255, 0.14);
-    --m-none: #2f323a;
-    --m-low: #5a3526;
-    --m-mid: #a94e26;
-    --m-high: #ff7a3d;
-    --m-top: #ffae85;
-    --body: #262830;
-    --body-line: #444852;
+    --skin: #3a332f;
+    --skin-line: #6e625a;
+    --st-good: #2fb872;
+    --st-behind: #f2ad1c;
+    --st-weak: #f0574a;
+    --st-unknown: #d9dbe1;
+    --st-decor: #574c45;
+    --fiber: rgba(0, 0, 0, 0.3);
+    --muscle-edge: rgba(20, 20, 24, 0.7);
     --focus: #5b9bff;
     color-scheme: dark;
   }
@@ -1071,174 +1075,6 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
   font-size: var(--t-lg);
   font-weight: 800;
   line-height: 1.35;
-}
-
-/* Портрет ---------------------------------------------------------------- */
-
-.portrait-card {
-  gap: 14px;
-}
-
-.portrait-stage {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  align-items: end;
-}
-
-.portrait-stage figure {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-}
-
-.portrait-stage figcaption {
-  font-size: var(--t-xs);
-  font-weight: 800;
-  color: var(--ink-3);
-}
-
-.body-figure {
-  display: block;
-  width: 100%;
-  max-width: 230px;
-  height: auto;
-  overflow: visible;
-}
-
-.body-figure .silhouette {
-  fill: var(--body);
-  stroke: var(--body-line);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-}
-
-.body-figure[data-empty] .silhouette {
-  fill: none;
-  stroke-dasharray: 5 5;
-}
-
-.body-figure .ghost {
-  fill: none;
-  stroke: var(--ink-3);
-  stroke-width: 1.2;
-  stroke-dasharray: 3 4;
-  opacity: 0.8;
-}
-
-.body-figure .muscle {
-  stroke: var(--surface);
-  stroke-width: 1.2;
-  transition: fill 0.6s var(--ease);
-}
-
-.body-figure .muscle[data-weak] {
-  stroke: var(--yellow);
-  stroke-width: 2.4;
-}
-
-.body-figure .muscle[data-priority] {
-  stroke: var(--primary-edge);
-  stroke-width: 2.2;
-  stroke-dasharray: 3 2.5;
-}
-
-.body-figure .abs-line {
-  stroke: var(--surface);
-  stroke-width: 1.4;
-}
-
-.body-figure .injury {
-  fill: var(--red);
-  stroke: var(--surface);
-  stroke-width: 2;
-}
-
-.body-figure .injury-ring {
-  fill: none;
-  stroke: var(--red);
-  stroke-width: 1.5;
-  opacity: 0.45;
-  animation: pulse 1.8s var(--ease) infinite;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-@keyframes pulse {
-  from {
-    transform: scale(0.6);
-    opacity: 0.7;
-  }
-  to {
-    transform: scale(1.6);
-    opacity: 0;
-  }
-}
-
-.portrait-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.stat {
-  display: grid;
-  gap: 0;
-  padding: 10px 12px;
-  border-radius: var(--r);
-  background: var(--surface-2);
-}
-
-.stat-value {
-  font-size: var(--t-xl);
-  font-weight: 900;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-label {
-  font-size: var(--t-xs);
-  font-weight: 700;
-  color: var(--ink-3);
-}
-
-.portrait-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  font-size: var(--t-xs);
-  font-weight: 700;
-  color: var(--ink-3);
-}
-
-.legend-swatch {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 5px;
-  border-radius: 4px;
-  vertical-align: -2px;
-}
-
-.heat-scale {
-  display: inline-block;
-  width: 70px;
-  height: 10px;
-  margin: 0 6px;
-  border-radius: 999px;
-  vertical-align: middle;
-  background: linear-gradient(to right, var(--m-low), var(--m-mid), var(--m-high), var(--m-top));
-}
-
-.portrait-growth {
-  display: grid;
-  gap: 6px;
-}
-
-.portrait-growth p {
-  font-size: var(--t-sm);
-  font-weight: 700;
-  color: var(--ink-2);
 }
 
 /* Карточка атлета -------------------------------------------------------- */
@@ -3070,83 +2906,6 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
   margin-bottom: 18px;
 }
 
-/* Портрет: детали */
-
-.body-figure .ground {
-  stroke: var(--line-2);
-  stroke-width: 2;
-  stroke-linecap: round;
-}
-
-.body-figure .height-mark line {
-  stroke: var(--ink-3);
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-  opacity: 0.6;
-}
-
-.body-figure .height-mark text {
-  fill: var(--ink-3);
-  font-size: 13px;
-  font-weight: 800;
-  font-family: var(--font);
-}
-
-.legend-weak {
-  border: 2px solid var(--yellow);
-}
-
-.legend-priority {
-  border: 2px dashed var(--primary-edge);
-}
-
-.legend-injury {
-  border-radius: 50%;
-  background: var(--red);
-}
-
-.portrait-compare {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
-.muscle-list summary {
-  cursor: pointer;
-  font-size: var(--t-sm);
-  font-weight: 800;
-  color: var(--blue);
-}
-
-.muscle-list ul {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.muscle-list li {
-  display: grid;
-  grid-template-columns: 7.5em 1fr 6em;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--t-sm);
-  font-weight: 700;
-}
-
-.muscle-list li[data-weak] > span:first-child::after {
-  content: ' •';
-  color: var(--yellow);
-}
-
-.muscle-level {
-  color: var(--ink-3);
-  font-size: var(--t-xs);
-  text-align: right;
-}
-
 @media (min-width: 1024px) {
   .mobile-only {
     display: none;
@@ -3251,4 +3010,801 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
 .recharts-wrapper:focus,
 .recharts-sector:focus {
   outline: none;
+}
+
+/* Портрет ---------------------------------------------------------------- */
+
+.portrait-card {
+  gap: 16px;
+}
+
+.portrait-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.portrait-main {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+@media (min-width: 900px) {
+  .portrait-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr);
+    gap: 24px;
+  }
+}
+
+.portrait-stage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  align-items: end;
+}
+
+.portrait-stage figure {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.portrait-stage figcaption {
+  font-size: var(--t-xs);
+  font-weight: 800;
+  color: var(--ink-3);
+}
+
+.body-figure {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  overflow: visible;
+  touch-action: manipulation;
+}
+
+.body-figure .ground {
+  stroke: var(--line-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.body-figure .height-mark line {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.6;
+}
+
+.body-figure .height-mark text {
+  fill: var(--ink-3);
+  font-size: 13px;
+  font-weight: 800;
+  font-family: var(--font);
+}
+
+/* Кожа: контур рисуется толстой линией под заливкой — швов между частями не видно. */
+.skin-edge > * {
+  fill: var(--skin);
+  stroke: var(--skin-line);
+  stroke-width: 2.6;
+  stroke-linejoin: round;
+}
+
+.skin-fill > * {
+  fill: var(--skin);
+  stroke: none;
+}
+
+.anatomy-lines {
+  fill: none;
+  stroke: var(--skin-line);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.m-fill {
+  stroke: var(--muscle-edge);
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+  transition:
+    fill 0.4s var(--ease),
+    opacity 0.25s;
+}
+
+.m-fibers {
+  fill: none;
+  stroke: var(--fiber);
+  stroke-width: 0.55;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.m[data-status='good'] .m-fill {
+  fill: var(--st-good);
+}
+
+.m[data-status='behind'] .m-fill {
+  fill: var(--st-behind);
+}
+
+.m[data-status='weak'] .m-fill {
+  fill: var(--st-weak);
+}
+
+.m[data-status='unknown'] .m-fill {
+  fill: var(--st-unknown);
+  stroke: var(--skin-line);
+}
+
+.m[data-status='unknown'] .m-fibers {
+  stroke: rgba(120, 100, 90, 0.35);
+}
+
+.m[data-status='decor'] {
+  pointer-events: none;
+}
+
+.m[data-status='decor'] .m-fill {
+  fill: var(--st-decor);
+}
+
+.m[data-group] {
+  cursor: pointer;
+  transition: opacity 0.25s;
+}
+
+@media (hover: hover) {
+  .m[data-group]:hover .m-fill {
+    filter: brightness(1.1) saturate(1.1);
+  }
+}
+
+.m[data-dim] {
+  opacity: 0.25;
+}
+
+.m[data-selected] .m-fill {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+.body-figure .ghost {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}
+
+.pin {
+  cursor: pointer;
+}
+
+.pin circle {
+  fill: var(--blue);
+  stroke: var(--surface);
+  stroke-width: 1.8;
+}
+
+.pin path {
+  fill: #fff;
+}
+
+.injury-mark {
+  pointer-events: none;
+}
+
+.injury {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 1.8;
+}
+
+.injury-cross {
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.injury-ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+  opacity: 0.4;
+  animation: pulse 1.8s var(--ease) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes pulse {
+  from {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Обозначения */
+
+.portrait-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-xs);
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+.portrait-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  border: 1.5px solid transparent;
+}
+
+.swatch[data-status='good'] {
+  background: var(--st-good);
+}
+
+.swatch[data-status='behind'] {
+  background: var(--st-behind);
+}
+
+.swatch[data-status='weak'] {
+  background: var(--st-weak);
+}
+
+.swatch[data-status='unknown'] {
+  background: var(--st-unknown);
+  border-color: var(--skin-line);
+}
+
+.swatch-pin,
+.swatch-injury {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.swatch-pin {
+  background: var(--blue);
+}
+
+.swatch-injury {
+  background: var(--ink);
+  position: relative;
+}
+
+.swatch-injury::before,
+.swatch-injury::after {
+  content: '';
+  position: absolute;
+  background: var(--bg);
+  border-radius: 1px;
+}
+
+.swatch-injury::before {
+  width: 8px;
+  height: 2px;
+}
+
+.swatch-injury::after {
+  width: 2px;
+  height: 8px;
+}
+
+.portrait-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 560px) {
+  .portrait-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.stat {
+  display: grid;
+  gap: 0;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+
+.stat-value {
+  font-size: var(--t-xl);
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.stat-label {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.portrait-growth {
+  display: grid;
+  gap: 6px;
+}
+
+.portrait-growth p {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.portrait-compare {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* Список мышц и карточка мышцы */
+
+.portrait-side {
+  min-width: 0;
+  scroll-margin-top: 12px;
+}
+
+.muscle-overview {
+  display: grid;
+  gap: 10px;
+}
+
+.muscle-hint {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.muscle-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.muscle-row {
+  display: grid;
+  grid-template-columns: 14px 1fr 16px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px 6px 10px;
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    transform 0.08s;
+}
+
+.muscle-row-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.muscle-row:hover {
+  border-color: var(--line-2);
+}
+
+.muscle-row:active {
+  transform: scale(0.99);
+}
+
+.muscle-row > svg {
+  color: var(--ink-3);
+}
+
+.muscle-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--t-sm);
+}
+
+.muscle-row-star {
+  color: var(--blue);
+}
+
+.muscle-row-status,
+.status-badge {
+  font-size: var(--t-xs);
+  font-weight: 900;
+}
+
+.muscle-row-status[data-status='good'] {
+  color: var(--green-edge);
+}
+
+.muscle-row-status[data-status='behind'] {
+  color: #a86b00;
+}
+
+.muscle-row-status[data-status='weak'] {
+  color: var(--red);
+}
+
+.muscle-row-status[data-status='unknown'] {
+  color: var(--ink-3);
+}
+
+.muscle-sheet {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border-top: 6px solid var(--line-2);
+  animation: page-in 0.25s var(--ease) both;
+}
+
+.muscle-sheet[data-status='good'] {
+  border-top-color: var(--st-good);
+}
+
+.muscle-sheet[data-status='behind'] {
+  border-top-color: var(--st-behind);
+}
+
+.muscle-sheet[data-status='weak'] {
+  border-top-color: var(--st-weak);
+}
+
+.muscle-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+}
+
+.muscle-sheet-head {
+  display: grid;
+  gap: 8px;
+}
+
+.muscle-title {
+  font-size: var(--t-2xl);
+  font-weight: 900;
+  line-height: 1.1;
+  outline: none;
+}
+
+.muscle-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--ink-3);
+}
+
+.status-badge[data-status='good'] {
+  background: var(--st-good);
+}
+
+.status-badge[data-status='behind'] {
+  background: var(--st-behind);
+  color: #3a2600;
+}
+
+.status-badge[data-status='weak'] {
+  background: var(--st-weak);
+}
+
+.status-badge[data-status='unknown'] {
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1.5px solid var(--line-2);
+}
+
+.badge-blue {
+  background: var(--blue);
+  color: #fff;
+}
+
+.badge-ink {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.level-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.level-track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--surface) 0 24.6%,
+    var(--line) 24.6% 25.4%,
+    var(--surface) 25.4% 49.6%,
+    var(--line) 49.6% 50.4%,
+    var(--surface) 50.4% 74.6%,
+    var(--line) 74.6% 75.4%,
+    var(--surface) 75.4%
+  );
+  overflow: visible;
+}
+
+.level-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--ink-3);
+  transition: width 0.7s var(--ease);
+}
+
+.muscle-sheet[data-status='good'] .level-fill {
+  background: var(--st-good);
+}
+
+.muscle-sheet[data-status='behind'] .level-fill {
+  background: var(--st-behind);
+}
+
+.muscle-sheet[data-status='weak'] .level-fill {
+  background: var(--st-weak);
+}
+
+.level-median {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+
+.level-scale {
+  position: relative;
+  height: 16px;
+  margin: 0 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-3);
+}
+
+.level-scale span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.level-scale span:first-child {
+  transform: none;
+}
+
+.level-scale span:last-child {
+  transform: translateX(-100%);
+}
+
+.level-scale span[data-active] {
+  color: var(--ink);
+}
+
+@media (max-width: 560px) {
+  .level-scale span:nth-child(2),
+  .level-scale span:nth-child(3),
+  .level-scale span:nth-child(4) {
+    display: none;
+  }
+}
+
+.level-caption {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.level-caption strong {
+  color: var(--ink);
+}
+
+.muscle-summary {
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.muscle-goal {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--surface);
+  border: 2px solid var(--st-weak);
+  color: var(--st-weak);
+}
+
+.muscle-sheet[data-status='behind'] .muscle-goal {
+  border-color: var(--st-behind);
+  color: #a86b00;
+}
+
+.muscle-goal-label {
+  font-size: var(--t-xs);
+  font-weight: 800;
+  color: var(--ink-3);
+}
+
+.muscle-goal-value {
+  font-size: var(--t-lg);
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.muscle-goal-value span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.muscle-sub {
+  margin: 0 0 8px;
+  font-size: var(--t-md);
+  font-weight: 900;
+}
+
+.muscle-lifts,
+.muscle-exercises {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.muscle-lifts li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.muscle-lift-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.muscle-lift-name {
+  font-weight: 800;
+}
+
+.muscle-lift-kg {
+  font-size: var(--t-lg);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.muscle-lift-meta {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.muscle-lift-next {
+  font-size: var(--t-sm);
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+.muscle-exercises li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.muscle-exercises li > svg {
+  color: var(--ink-3);
+}
+
+.muscle-ex-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: var(--t-sm);
+  font-weight: 800;
+}
+
+.muscle-ex-tags {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.muscle-ex-load {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.muscle-blocked {
+  padding: 10px 12px;
+  margin-top: 8px;
+  border-radius: var(--r);
+  background: var(--surface);
+  border: 2px dashed var(--line-2);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+/* Телефон: одна фигура и переключатель «Спереди / Сзади». */
+.view-switch {
+  justify-self: center;
+  width: min(260px, 100%);
+}
+
+@media (max-width: 899px) {
+  .portrait-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .portrait-stage figure:not([data-active]) {
+    display: none;
+  }
+
+  .portrait-stage figcaption {
+    display: none;
+  }
+
+  .portrait-stage .body-figure {
+    max-width: 300px;
+  }
+}
+
+@media (min-width: 900px) {
+  .view-switch {
+    display: none;
+  }
 }

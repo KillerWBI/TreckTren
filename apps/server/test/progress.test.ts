@@ -12,7 +12,7 @@ import { createApp } from '../src/app.js';
 import { addDays, todayIn } from '../src/dates.js';
 import { pool } from '../src/db.js';
 import { decide } from '../src/modules/progress/weekly.js';
-import { estimateBodyFat, muscleLevels } from '../src/modules/progress/portrait.js';
+import { estimateBodyFat, muscleDetails, muscleLevels } from '../src/modules/progress/portrait.js';
 import { bearer, registerUser } from './helpers.js';
 
 const today = todayIn('Europe/Warsaw');
@@ -62,6 +62,45 @@ describe('портрет', () => {
     expect(estimateBodyFat(22.1, 18, false)).toBe(14);
   });
 
+  it('отстающая мышца: до скольки догнать остальное тело', () => {
+    const lift = (oneRmKg: number) => ({ oneRmKg, estimated: false, updatedAt: '2026-11-12' });
+    const card: AthleteCard = {
+      basics: { sex: 'male', heightCm: 180, weightKg: 80 },
+      strength: {
+        lifts: {
+          'barbell-back-squat': lift(160),
+          'bench-press': lift(120),
+          deadlift: lift(200),
+          'overhead-press': lift(50),
+          'barbell-row': lift(100),
+        },
+      },
+    };
+    const body = {
+      sex: 'male' as const,
+      heightCm: 180,
+      weightKg: 80,
+      bodyFatPct: 15,
+      bodyFatEstimated: true,
+      levels: muscleLevels(card, 80),
+    };
+    const { muscles, median } = muscleDetails({
+      card,
+      body,
+      exercises: [],
+      inPlan: new Set(),
+      weak: new Map(),
+      injuries: [],
+    });
+    expect(median).toBeGreaterThan(0.5);
+    const shoulders = muscles.find((m) => m.group === 'shoulders')!;
+    expect(shoulders.status).toBe('weak');
+    expect(shoulders.catchUp).toMatchObject({ slug: 'overhead-press' });
+    expect(shoulders.catchUp!.kg).toBeGreaterThan(70);
+    expect(shoulders.summary).toMatch(/заметно отстают/);
+    expect(muscles.find((m) => m.group === 'chest')!.status).toBe('good');
+  });
+
   it('по данным человека: травмы, слабые места, заполненность, начало пути', async () => {
     const { auth, call } = await person();
     await call()
@@ -91,6 +130,37 @@ describe('портрет', () => {
     expect(p.completeness).toEqual({ filled: 6, total: 11 });
     expect(p.start).toMatchObject({ body: { weightKg: 70 } });
     expect(p.strengthLabel).toBeTruthy();
+
+    // По нажатию на мышцу: статус, движение, цель, упражнения.
+    const by = new Map(p.muscles.map((m) => [m.group, m]));
+    expect(p.muscles).toHaveLength(12);
+    const quads = by.get('quads')!;
+    expect(quads).toMatchObject({ status: 'weak', priority: true, proxy: false });
+    expect(quads.weak).toMatchObject({ area: 'присед со штангой' });
+    expect(quads.injury).toMatch(/Колено/);
+    expect(quads.lifts[0]).toMatchObject({
+      slug: 'barbell-back-squat',
+      oneRmKg: 120,
+      source: 'tested',
+    });
+    expect(quads.lifts[0]!.ratio).toBeCloseTo(1.71, 2);
+    expect(quads.lifts[0]!.next).toMatchObject({ tier: 'продвинутый', kg: 140 });
+    expect(quads.levelWord).toBe('средний');
+    expect(quads.blockedByInjury).toContain('Присед со штангой');
+    expect(quads.summary).toMatch(/слабым местом/);
+    // Колено ноет — приседы и выпады убраны, остаётся то, что колено не задевает.
+    expect(quads.exercises.length).toBeGreaterThan(0);
+    expect(quads.exercises.map((e) => e.slug)).not.toContain('barbell-back-squat');
+    expect(quads.exercises.every((e) => !e.inPlan)).toBe(true);
+    expect(by.get('chest')!.exercises.length).toBeGreaterThan(2);
+    expect(by.get('chest')!.exercises[0]).toMatchObject({ primary: true, kind: 'kg' });
+    // Становой нет — о бицепсе бедра судить не по чему.
+    expect(by.get('hamstrings')).toMatchObject({ status: 'unknown', level: null });
+    expect(by.get('hamstrings')!.summary).toMatch(/Нет данных/);
+    // Жим 100 при весе 70 — 1,43 веса, в норме, следующая ступень — продвинутый.
+    expect(by.get('chest')).toMatchObject({ status: 'good' });
+    expect(by.get('chest')!.lifts[0]!.next).toMatchObject({ tier: 'продвинутый', kg: 105 });
+    expect(by.get('abs')!.proxy).toBe(true);
 
     // Утренние взвешивания важнее веса из карточки.
     for (const d of [0, 1, 2]) {
