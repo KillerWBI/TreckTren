@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Check, Dumbbell, Settings } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { AthleteCard, CardResponse } from '@trektren/shared';
 import { api } from '../api/http';
-import { PlateMark, Sleeve } from '../components/Sleeve';
 import { ErrorState, Loading } from '../components/States';
 import { formatDateTime } from '../format';
 import { SectionEditor } from '../card/SectionEditor';
@@ -12,24 +12,19 @@ import { CARD_KEY } from '../card/useSaveCard';
 import { WeakPointsEditor } from '../card/WeakPointsEditor';
 import { StrengthForm, strengthSummary } from '../plan/StrengthForm';
 import { useExercises } from '../plan/usePlan';
+import { Portrait } from '../portrait/Portrait';
 
 export function CardPage() {
   const query = useQuery({ queryKey: CARD_KEY, queryFn: () => api<CardResponse>('/card') });
   const [open, setOpen] = useState<SectionKey | 'strength' | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
-  if (query.isPending) return <Loading text="Загружаю карточку" />;
+  if (query.isPending) return <Loading text="Загружаю профиль" />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
 
   const { card, version, updatedAt } = query.data;
   const filled = SECTIONS.filter((s) => isFilled(card, s.key));
   const missingRequired = SECTIONS.filter((s) => s.required && !isFilled(card, s.key));
-  const slots = SECTIONS.map((s) => ({
-    id: s.key,
-    plate: s.plate,
-    filled: isFilled(card, s.key),
-    label: s.title,
-  }));
 
   const close = (def: SectionDef) => (saved: boolean) => {
     setOpen(null);
@@ -51,45 +46,63 @@ export function CardPage() {
 
   return (
     <main className="page">
-      <h1 className="page-title">Карточка атлета</h1>
-      <Sleeve slots={slots} title={`Заполнено ${filled.length} разделов из ${SECTIONS.length}`} />
-      <p className="sleeve-caption">
-        <strong>
-          Заполнено {filled.length} из {SECTIONS.length}.
-        </strong>{' '}
+      <div className="page-head">
+        <h1 className="page-title">Профиль</h1>
+        <Link to="/account" className="button button-small button-secondary mobile-only">
+          <Settings size={18} strokeWidth={2.4} aria-hidden="true" />
+          Аккаунт
+        </Link>
+      </div>
+      <p className="page-lead">
         {missingRequired.length > 0
           ? `Для первого плана не хватает: ${missingRequired.map((s) => s.title.toLowerCase()).join(', ')}.`
-          : 'Всё обязательное на месте.'}
+          : `Заполнено ${filled.length + (card.strength?.lifts && Object.keys(card.strength.lifts).length > 0 ? 1 : 0)} из ${SECTIONS.length + 1}. Чем больше тренер знает, тем точнее план и норма.`}
       </p>
 
-      <section className="section-group" aria-labelledby="required-heading">
-        <h2 id="required-heading" className="group-title">
-          Обязательное для первого плана
-        </h2>
-        {rows(true)}
-      </section>
-      <StrengthRow
-        card={card}
-        open={open === 'strength'}
-        onToggle={() => setOpen(open === 'strength' ? null : 'strength')}
-        onClose={(saved) => {
-          setOpen(null);
-          if (saved) setAnnouncement('Силовые сохранены');
-        }}
-      />
-      <section className="section-group" aria-labelledby="optional-heading">
-        <h2 id="optional-heading" className="group-title">
-          Можно заполнить позже
-        </h2>
-        {rows(false)}
-      </section>
-
-      <p className="page-meta">
-        {version === 0
-          ? 'Карточка ещё не сохранялась.'
-          : `Версия ${version}, обновлена ${formatDateTime(updatedAt)}.`}{' '}
-        {version > 0 && <Link to="/history">История изменений</Link>}
-      </p>
+      <div className="cols cols-mixed card-cols">
+        <div className="col">
+          <section
+            className="section-group"
+            aria-labelledby="required-heading"
+            style={{ order: 2 }}
+          >
+            <h2 id="required-heading" className="group-title">
+              Обязательное для первого плана
+            </h2>
+            {rows(true)}
+          </section>
+          <StrengthRow
+            card={card}
+            open={open === 'strength'}
+            onToggle={() => setOpen(open === 'strength' ? null : 'strength')}
+            onClose={(saved) => {
+              setOpen(null);
+              if (saved) setAnnouncement('Силовые сохранены');
+            }}
+          />
+          <section
+            className="section-group"
+            aria-labelledby="optional-heading"
+            style={{ order: 4 }}
+          >
+            <h2 id="optional-heading" className="group-title">
+              Можно заполнить позже
+            </h2>
+            {rows(false)}
+          </section>
+          <p className="page-meta" style={{ order: 5 }}>
+            {version === 0
+              ? 'Профиль ещё не сохранялся.'
+              : `Версия ${version}, обновлена ${formatDateTime(updatedAt)}.`}{' '}
+            {version > 0 && <Link to="/history">История изменений</Link>}
+          </p>
+        </div>
+        <div className="col sticky">
+          <div className="slot" style={{ order: 1 }}>
+            <Portrait />
+          </div>
+        </div>
+      </div>
       <p className="visually-hidden" aria-live="polite">
         {announcement}
       </p>
@@ -120,7 +133,9 @@ function SectionRow({ def, card, version, open, onToggle, onClose }: RowProps) {
         aria-controls={panelId}
         onClick={onToggle}
       >
-        <PlateMark plate={def.plate} filled={filled} />
+        <span className="section-icon" data-filled={filled || undefined} aria-hidden="true">
+          {filled ? <Check size={20} strokeWidth={3} /> : <def.icon size={20} strokeWidth={2.4} />}
+        </span>
         <span className="section-text">
           <span className="section-title">{def.title}</span>
           <span className={filled ? 'section-summary' : 'section-summary section-summary-empty'}>
@@ -160,7 +175,7 @@ function StrengthRow({
   const names = new Map((exercises.data ?? []).map((e) => [e.slug, e.name]));
   const summary = strengthSummary(card, names);
   return (
-    <section className="section-group" aria-labelledby="strength-heading">
+    <section className="section-group" aria-labelledby="strength-heading" style={{ order: 3 }}>
       <h2 id="strength-heading" className="group-title">
         Силовые
       </h2>
@@ -172,6 +187,17 @@ function StrengthRow({
           aria-controls="section-strength"
           onClick={onToggle}
         >
+          <span
+            className="section-icon"
+            data-filled={summary ? true : undefined}
+            aria-hidden="true"
+          >
+            {summary ? (
+              <Check size={20} strokeWidth={3} />
+            ) : (
+              <Dumbbell size={20} strokeWidth={2.4} />
+            )}
+          </span>
           <span className="section-text">
             <span className="section-title">Максимумы и цели</span>
             <span className={summary ? 'section-summary' : 'section-summary section-summary-empty'}>

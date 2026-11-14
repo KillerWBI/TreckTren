@@ -11,6 +11,7 @@ import type {
   WorkoutSetView,
 } from '@trektren/shared';
 import { api } from '../api/http';
+import { sendOrQueue } from '../offline/outbox';
 import { CARD_KEY, VERSIONS_KEY } from '../card/useSaveCard';
 
 export const PLAN_KEY = ['plan'] as const;
@@ -117,10 +118,22 @@ export function useStartWorkout() {
   });
 }
 
+/** Подход: без сети ложится в очередь и уйдёт сам. queued — ждёт сети. */
 export function useSaveSet(workoutId: string) {
   return useMutation({
-    mutationFn: (input: WorkoutSetInput) =>
-      api<WorkoutSetView>(`/workouts/${workoutId}/sets`, { method: 'PUT', json: input }),
+    mutationFn: async (input: WorkoutSetInput): Promise<WorkoutSetView & { queued: boolean }> => {
+      const res = await sendOrQueue<WorkoutSetView>(
+        `set:${workoutId}:${input.exerciseSlug}:${input.setNo}`,
+        `/workouts/${workoutId}/sets`,
+        'PUT',
+        input,
+      );
+      if (res.queued) {
+        const est1rm = Math.round(input.weightKg * (1 + (input.reps + input.rir) / 30) * 10) / 10;
+        return { ...input, est1rm, queued: true };
+      }
+      return { ...res.data, queued: false };
+    },
   });
 }
 

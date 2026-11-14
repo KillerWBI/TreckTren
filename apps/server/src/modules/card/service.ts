@@ -61,7 +61,7 @@ export async function applyCardPatch(
     (key) => !(options.allowedSections as readonly string[]).includes(key),
   );
   if (forbidden.length > 0) {
-    throw new AppError(403, 'CARD_SECTION_FORBIDDEN', 'Эти разделы карточки меняет не человек', {
+    throw new AppError(403, 'CARD_SECTION_FORBIDDEN', 'Эти разделы профиля меняет не человек', {
       sections: forbidden,
     });
   }
@@ -69,7 +69,7 @@ export async function applyCardPatch(
   return withTransaction(async (c) => {
     const current = await lockProfile(c, userId);
     if (options.baseVersion !== undefined && options.baseVersion !== current.card_version) {
-      throw new AppError(409, 'VERSION_CONFLICT', 'Карточка изменилась, обнови страницу', {
+      throw new AppError(409, 'VERSION_CONFLICT', 'Профиль изменился, обнови страницу', {
         currentVersion: current.card_version,
       });
     }
@@ -135,7 +135,7 @@ function validateCard(value: unknown): AthleteCard {
     throw new AppError(
       422,
       'CARD_INVALID',
-      'Карточка не прошла проверку',
+      'Профиль не прошёл проверку',
       formatIssues(result.error),
     );
   }

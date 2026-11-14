@@ -41,7 +41,7 @@ export function SectionEditor({ def, card, version, onClose }: Props) {
         onError: (err) => {
           if (err instanceof ApiError && err.code === 'VERSION_CONFLICT') {
             setFormError(
-              'Карточка изменилась на другом устройстве. Я подтянул новую версию — проверь и сохрани снова.',
+              'Профиль изменился на другом устройстве. Я подтянул новую версию — проверь и сохрани снова.',
             );
             void queryClient.invalidateQueries({ queryKey: CARD_KEY });
             return;

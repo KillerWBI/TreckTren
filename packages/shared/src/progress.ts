@@ -7,15 +7,7 @@ export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 
 /** Где травма — чтобы отметить на фигуре. */
 export type BodyZone =
-  | 'neck'
-  | 'shoulder'
-  | 'elbow'
-  | 'wrist'
-  | 'chest'
-  | 'lowerBack'
-  | 'hip'
-  | 'knee'
-  | 'ankle';
+  'neck' | 'shoulder' | 'elbow' | 'wrist' | 'chest' | 'lowerBack' | 'hip' | 'knee' | 'ankle';
 
 export interface PortraitBody {
   sex: 'male' | 'female';

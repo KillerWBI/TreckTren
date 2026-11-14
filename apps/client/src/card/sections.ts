@@ -20,7 +20,19 @@ import {
   WEAK_STATUS_LABELS,
   WEEKDAY_SHORT,
 } from './labels';
-import type { PlateId } from './plates';
+import {
+  Bandage,
+  CalendarDays,
+  Crosshair,
+  Dumbbell,
+  Footprints,
+  Medal,
+  Moon,
+  Ruler,
+  Target,
+  Utensils,
+  type LucideIcon,
+} from 'lucide-react';
 
 export type SectionKey = (typeof USER_EDITABLE_SECTIONS)[number];
 
@@ -51,7 +63,7 @@ export type FieldDef =
 export interface SectionDef {
   key: SectionKey;
   title: string;
-  plate: PlateId;
+  icon: LucideIcon;
   required: boolean;
   /** Зачем раздел тренеру — показывается, пока он пустой. */
   why: string;
@@ -69,7 +81,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'goals',
     title: 'Цели',
-    plate: 'r25',
+    icon: Target,
     required: true,
     why: 'Без цели нет плана: от неё зависят повторы, объём и калории.',
     fields: [
@@ -113,7 +125,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'basics',
     title: 'Базовое',
-    plate: 'b20',
+    icon: Ruler,
     required: true,
     why: 'Рост, вес и возраст нужны для нормы калорий и оценки потолка.',
     fields: [
@@ -150,7 +162,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'availability',
     title: 'Дни и время',
-    plate: 'y15',
+    icon: CalendarDays,
     required: true,
     why: 'Число тренировок решает сплит и восстановление между ними.',
     fields: [
@@ -186,7 +198,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'equipment',
     title: 'Оборудование',
-    plate: 'g10',
+    icon: Dumbbell,
     required: true,
     why: 'Тренер подбирает только те упражнения, которые можно сделать.',
     fields: [
@@ -220,7 +232,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'limitations',
     title: 'Травмы и ограничения',
-    plate: 'w5',
+    icon: Bandage,
     required: true,
     why: 'Через боль план не строится: такие движения тренер заменит.',
     fields: [
@@ -246,7 +258,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'experience',
     title: 'Опыт',
-    plate: 'r2_5',
+    icon: Medal,
     required: false,
     why: 'Стаж определяет темп прогресса и прогноз сроков.',
     fields: [
@@ -276,7 +288,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'activity',
     title: 'Активность вне зала',
-    plate: 'b2',
+    icon: Footprints,
     required: false,
     why: 'Шаги и работа на ногах меняют норму калорий сильнее, чем кажется.',
     fields: [
@@ -299,7 +311,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'nutrition',
     title: 'Питание',
-    plate: 'y1_5',
+    icon: Utensils,
     required: false,
     why: 'Чтобы рацион был реальным, а не идеальным на бумаге.',
     fields: [
@@ -333,7 +345,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'recovery',
     title: 'Сон и стресс',
-    plate: 'g1',
+    icon: Moon,
     required: false,
     why: 'При плохом сне тренер снижает нагрузку дня, а не ломает тебя.',
     fields: [
@@ -357,7 +369,7 @@ export const SECTIONS: SectionDef[] = [
   {
     key: 'weakPoints',
     title: 'Слабые места',
-    plate: 'w0_5',
+    icon: Crosshair,
     required: false,
     why: 'Что отстаёт, по-твоему. Тренер проверит тестами и найдёт причину.',
     fields: [],

@@ -140,7 +140,7 @@ export function decide(stats: WeeklyStats, trendSuggestion: number, trendText: s
   if (stats.avgKcal !== null && stats.avgNormKcal) {
     const pct = Math.round((stats.avgKcal / stats.avgNormKcal) * 100);
     points.push(
-      `Калории: в среднем ${stats.avgKcal} из ${stats.avgNormKcal} (${pct}%) за ${stats.foodDays} дн. с записями.${pct < 90 ? ' Недоедаешь — рост встанет.' : pct > 110 ? ' Перебор — лишнее уйдёт в жир.' : ''}`,
+      `Калории: в среднем ${stats.avgKcal.toLocaleString('ru-RU')} из ${stats.avgNormKcal.toLocaleString('ru-RU')} (${pct}%) за ${stats.foodDays} дн. с записями.${pct < 90 ? ' Недоедаешь — рост встанет.' : pct > 110 ? ' Перебор — лишнее уйдёт в жир.' : ''}`,
     );
   } else {
     points.push('Еда не записана — без неё калории не сверить. Записывай хотя бы основные приёмы.');
@@ -168,15 +168,18 @@ export function decide(stats: WeeklyStats, trendSuggestion: number, trendText: s
     points.push(`${s.name}: максимум ${fmt(s.fromKg)} → ${fmt(s.toKg)} кг.`);
 
   let volume: WeeklyReview['volume'] = 'keep';
-  let volumeText = 'Объём держим: план работает.';
+  let volumeText =
+    stats.sessionsPlanned === 0
+      ? 'Объём без изменений: тренировок по плану на этой неделе не было.'
+      : 'Объём держим: план работает.';
   const tired =
     (stats.avgWellbeing !== null && stats.avgWellbeing <= 2.3) ||
     (stats.avgSleepHours !== null && stats.avgSleepHours < 6.5);
   if (stats.sessionsMissed >= 2 || tired) {
     volume = 'down';
     volumeText = tired
-      ? 'Объём вниз на подход в подсобке: сон и самочувствие не дают восстановиться.'
-      : 'Объём вниз на подход в подсобке: два пропуска — значит, план не влезает в неделю. Лучше меньше, но без пропусков.';
+      ? 'Объём вниз на подход в подсобных упражнениях — сон и самочувствие не дают восстановиться.'
+      : 'Объём вниз на подход в подсобных упражнениях: два пропуска значат, что план не влезает в неделю. Лучше меньше, но без пропусков.';
   } else if (
     stats.sessionsPlanned > 0 &&
     stats.sessionsDone >= stats.sessionsPlanned &&
@@ -185,7 +188,7 @@ export function decide(stats: WeeklyStats, trendSuggestion: number, trendText: s
   ) {
     volume = 'up';
     volumeText =
-      'Объём вверх: +1 подход в подсобке на отстающие движения — всё сделано и силы растут.';
+      'Объём вверх: +1 подход в подсобных упражнениях на отстающие движения — всё сделано и силы растут.';
   }
   return { points, kcalDelta: trendSuggestion, volume, volumeText };
 }

@@ -3,21 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { loginRequestSchema, registerRequestSchema } from '@trektren/shared';
 import { fieldErrorsFrom } from '../api/http';
 import { useAuth } from '../auth/AuthContext';
-import { Sleeve } from '../components/Sleeve';
-import { SECTIONS } from '../card/sections';
-
-const fullSleeve = SECTIONS.map((s) => ({
-  id: s.key,
-  plate: s.plate,
-  filled: true,
-  label: s.title,
-}));
+import { Logo } from '../components/Logo';
 
 function AuthLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="auth">
-      <p className="wordmark">TreckTren</p>
-      <Sleeve slots={fullSleeve} title="Штанга с блинами" />
+      <Logo />
       <h1 className="page-title">{title}</h1>
       {children}
     </main>

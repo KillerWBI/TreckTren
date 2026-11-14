@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DayResponse, MealInput, ParsedFood, TimeOfDay } from '@trektren/shared';
+import type {
+  DayResponse,
+  MealInput,
+  ParsedFood,
+  TimeOfDay,
+  WellbeingView,
+} from '@trektren/shared';
 import { api } from '../api/http';
+import { sendOrQueue } from '../offline/outbox';
 
 export const dayKey = (date: string) => ['day', date] as const;
 
@@ -19,9 +26,37 @@ function useDayMutation<T>(date: string, fn: (input: T) => Promise<DayResponse |
   });
 }
 
+/**
+ * Вес, шаги и сон: без сети запись ложится в очередь, а день в кэше правим сразу,
+ * чтобы экран показал введённое. queued — ждёт сети.
+ */
+function useQueuedDayMutation<T>(
+  date: string,
+  request: (input: T) => { key: string; path: string; json: unknown },
+  patch: (day: DayResponse, input: T) => DayResponse,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: T) => {
+      const r = request(input);
+      return sendOrQueue<DayResponse>(r.key, r.path, 'PUT', r.json);
+    },
+    onSuccess: (res, input) => {
+      if (!res.queued) queryClient.setQueryData(dayKey(date), res.data);
+      else queryClient.setQueryData<DayResponse>(dayKey(date), (old) => old && patch(old, input));
+    },
+  });
+}
+
 export const usePutWeight = (date: string) =>
-  useDayMutation(date, (input: { timeOfDay: TimeOfDay; weightKg: number }) =>
-    api<DayResponse>('/weights', { method: 'PUT', json: { date, ...input } }),
+  useQueuedDayMutation(
+    date,
+    (input: { timeOfDay: TimeOfDay; weightKg: number }) => ({
+      key: `weight:${date}:${input.timeOfDay}`,
+      path: '/weights',
+      json: { date, ...input },
+    }),
+    (day, input) => ({ ...day, weights: { ...day.weights, [input.timeOfDay]: input.weightKg } }),
   );
 
 export const useDeleteWeight = (date: string) =>
@@ -30,8 +65,21 @@ export const useDeleteWeight = (date: string) =>
   );
 
 export const usePutSteps = (date: string) =>
-  useDayMutation(date, (steps: number) =>
-    api<DayResponse>(`/steps/${date}`, { method: 'PUT', json: { steps } }),
+  useQueuedDayMutation(
+    date,
+    (steps: number) => ({ key: `steps:${date}`, path: `/steps/${date}`, json: { steps } }),
+    (day, steps) => ({ ...day, steps }),
+  );
+
+export const usePutWellbeing = (date: string) =>
+  useQueuedDayMutation(
+    date,
+    (input: WellbeingView) => ({
+      key: `wellbeing:${date}`,
+      path: `/wellbeing/${date}`,
+      json: input,
+    }),
+    (day, wellbeing) => ({ ...day, wellbeing }),
   );
 
 export const useAddMeal = (date: string) =>

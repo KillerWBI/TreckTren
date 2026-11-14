@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CardResponse, CardVersionDetail, CardVersionSummary } from '@trektren/shared';
 import { api } from '../api/http';
-import { PlateMark } from '../components/Sleeve';
 import { ErrorState, Loading } from '../components/States';
 import { formatDateTime } from '../format';
 import { SOURCE_LABELS } from '../card/labels';
@@ -37,7 +36,7 @@ export function HistoryPage() {
 
   return (
     <main className="page">
-      <h1 className="page-title">История карточки</h1>
+      <h1 className="page-title">История профиля</h1>
       <p className="page-lead">
         Каждое сохранение — новая версия. Любую можно вернуть: старые версии при этом не пропадают.
       </p>
@@ -49,9 +48,9 @@ export function HistoryPage() {
 
       {versions.length === 0 ? (
         <div className="empty">
-          <p>Истории пока нет. Заполни первый раздел карточки — здесь появится версия 1.</p>
+          <p>Истории пока нет. Заполни первый раздел профиля — здесь появится версия 1.</p>
           <Link className="button" to="/card">
-            Открыть карточку
+            Открыть профиль
           </Link>
         </div>
       ) : (
@@ -66,15 +65,9 @@ export function HistoryPage() {
                   </p>
                   {v.reason && <p className="version-reason">{v.reason}</p>}
                   <ul className="version-sections" aria-label="Изменённые разделы">
-                    {v.changedSections.map((key) => {
-                      const def = SECTIONS.find((s) => s.key === key);
-                      return (
-                        <li key={key}>
-                          {def && <PlateMark plate={def.plate} filled />}
-                          {sectionTitle(key)}
-                        </li>
-                      );
-                    })}
+                    {v.changedSections.map((key) => (
+                      <li key={key}>{sectionTitle(key)}</li>
+                    ))}
                   </ul>
                 </div>
               </div>
@@ -84,7 +77,7 @@ export function HistoryPage() {
                 aria-expanded={openVersion === v.version}
                 onClick={() => setOpenVersion(openVersion === v.version ? null : v.version)}
               >
-                {openVersion === v.version ? 'Скрыть' : 'Посмотреть карточку в этой версии'}
+                {openVersion === v.version ? 'Скрыть' : 'Посмотреть профиль в этой версии'}
               </button>
               {openVersion === v.version && (
                 <VersionDetail
@@ -144,10 +137,7 @@ function VersionDetail({
       <dl className="snapshot">
         {SECTIONS.map((def) => (
           <div key={def.key} className="snapshot-row">
-            <dt>
-              <PlateMark plate={def.plate} filled={isFilled(snapshot, def.key)} />
-              {def.title}
-            </dt>
+            <dt>{def.title}</dt>
             <dd>{isFilled(snapshot, def.key) ? def.summary(snapshot) : 'Не заполнено'}</dd>
           </div>
         ))}

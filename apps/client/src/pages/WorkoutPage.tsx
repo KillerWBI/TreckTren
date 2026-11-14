@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Check } from 'lucide-react';
 import {
   READINESS_TEXT,
   type ExerciseVerdict,
@@ -11,7 +12,8 @@ import {
 } from '@trektren/shared';
 import { ApiError } from '../api/http';
 import { ErrorState, Loading } from '../components/States';
-import { num } from '../format';
+import { num, plural } from '../format';
+import { flushOutbox, outboxItems, useOutbox } from '../offline/outbox';
 import { shortDay } from '../plan/dates';
 import {
   useDeleteSet,
@@ -28,7 +30,8 @@ interface Row {
   rir: string;
   /** Что сейчас сохранено на сервере; null — подход ещё не записан. */
   saved: WorkoutSetView | null;
-  state: 'idle' | 'saving' | 'error';
+  /** queued — записан на телефоне, уйдёт на сервер, когда появится сеть. */
+  state: 'idle' | 'saving' | 'error' | 'queued';
 }
 
 const toInput = (n: number) => String(n).replace('.', ',');
@@ -67,7 +70,23 @@ function Logger({ data }: { data: WorkoutResponse }) {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
 
+  const outbox = useOutbox();
+  const waiting = outbox.filter((i) => i.path === `/workouts/${workout.id}/sets`);
   const names = new Map((exercises.data ?? []).map((e) => [e.slug, e]));
+
+  // Очередь ушла на сервер — снимаем жёлтую отметку «ждёт сети».
+  useEffect(() => {
+    if (waiting.length > 0) return;
+    setRows((r) => {
+      if (!Object.values(r).some((list) => list.some((x) => x.state === 'queued'))) return r;
+      return Object.fromEntries(
+        Object.entries(r).map(([k, list]) => [
+          k,
+          list.map((x) => (x.state === 'queued' ? { ...x, state: 'idle' as const } : x)),
+        ]),
+      );
+    });
+  }, [waiting.length]);
   const slugs = [...planned.map((p) => p.slug), ...extra];
 
   const update = (slug: string, index: number, patch: Partial<Row>) =>
@@ -89,8 +108,8 @@ function Logger({ data }: { data: WorkoutResponse }) {
     saveSet.mutate(
       { exerciseSlug: slug, setNo: index + 1, weightKg, reps, rir },
       {
-        onSuccess: (saved) => {
-          update(slug, index, { saved, state: 'idle' });
+        onSuccess: ({ queued, ...saved }) => {
+          update(slug, index, { saved, state: queued ? 'queued' : 'idle' });
           setLastSavedAt(Date.now());
           // Следующий подход — с тем же весом.
           setRows((r) => {
@@ -145,11 +164,29 @@ function Logger({ data }: { data: WorkoutResponse }) {
     0,
   );
 
-  const onFinish = () => {
+  const onFinish = async () => {
     setError('');
     if (unsaved > 0) {
       setError(`Не записано подходов: ${unsaved}. Нажми «Записать» у каждого или очисти повторы.`);
       return;
+    }
+    if (waiting.length > 0) {
+      await flushOutbox();
+      const left = outboxItems().filter((i) => i.path === `/workouts/${workout.id}/sets`).length;
+      if (left > 0) {
+        setError(
+          `Нет сети: ${left} ${plural(left, ['подход ждёт', 'подхода ждут', 'подходов ждут'])} отправки. Разбор будет, когда появится связь.`,
+        );
+        return;
+      }
+      setRows((r) =>
+        Object.fromEntries(
+          Object.entries(r).map(([k, list]) => [
+            k,
+            list.map((x) => (x.state === 'queued' ? { ...x, state: 'idle' as const } : x)),
+          ]),
+        ),
+      );
     }
     finish.mutate(notes, {
       onError: (err) =>
@@ -240,7 +277,7 @@ function Logger({ data }: { data: WorkoutResponse }) {
       <button
         type="button"
         className="button button-wide workout-finish"
-        onClick={onFinish}
+        onClick={() => void onFinish()}
         disabled={finish.isPending || savedCount === 0}
       >
         {finish.isPending ? 'Разбираю тренировку…' : 'Завершить и получить разбор'}
@@ -335,7 +372,12 @@ function ExerciseCard({ slug, plan, info, rows, onChange, onSave, onAdd, onRemov
               String(row.saved.rir) !== row.rir);
           const label = `${name}, подход ${i + 1}`;
           return (
-            <li key={i} className="set-row" data-saved={(row.saved && !dirty) || undefined}>
+            <li
+              key={i}
+              className="set-row"
+              data-saved={(row.saved && !dirty && row.state !== 'queued') || undefined}
+              data-queued={(row.state === 'queued' && !dirty) || undefined}
+            >
               <span className="set-no" aria-hidden="true">
                 {i + 1}
               </span>
@@ -377,14 +419,29 @@ function ExerciseCard({ slug, plan, info, rows, onChange, onSave, onAdd, onRemov
                 type="button"
                 className="set-save"
                 onClick={() => onSave(i)}
-                disabled={row.state === 'saving' || row.reps.trim() === ''}
+                disabled={
+                  row.state === 'saving' ||
+                  row.reps.trim() === '' ||
+                  (!!row.saved && !dirty && row.state !== 'error')
+                }
                 aria-label={`${label}: записать`}
               >
-                {row.state === 'saving' ? '…' : row.saved && !dirty ? '✓' : 'Записать'}
+                {row.state === 'saving' ? (
+                  '…'
+                ) : row.saved && !dirty ? (
+                  <Check size={24} strokeWidth={3.2} aria-hidden="true" />
+                ) : (
+                  'Записать'
+                )}
               </button>
+              {row.state === 'queued' && !dirty && (
+                <span className="set-note">
+                  Записано на телефоне, отправлю, когда появится сеть.
+                </span>
+              )}
               {row.state === 'error' && (
                 <span className="set-error" role="alert">
-                  Не сохранилось: проверь числа и связь, нажми ещё раз.
+                  Не сохранилось: проверь числа и нажми ещё раз.
                 </span>
               )}
             </li>
@@ -443,9 +500,11 @@ function RestTimer({ since }: { since: number | null }) {
   const sec = Math.max(0, Math.floor((now - since) / 1000));
   return (
     <p className="rest-timer" aria-live="off">
-      Отдых {Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}
+      <span className="rest-time">
+        Отдых {Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}
+      </span>
       <span className="rest-hint">
-        {sec < 120 ? ' — базовым нужно 2–4 минуты' : sec < 240 ? ' — можно работать' : ''}
+        {sec < 120 ? 'базовым нужно 2–4 минуты' : sec < 240 ? 'можно работать' : ''}
       </span>
     </p>
   );

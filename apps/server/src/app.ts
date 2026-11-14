@@ -61,8 +61,23 @@ export function createApp({ authMode = config.AUTH_MODE, ai = aiFromConfig() }: 
   // Продакшен: клиент и API на одном домене — refresh-cookie работает с SameSite=Strict.
   const clientDir = config.CLIENT_DIST_DIR ? path.resolve(config.CLIENT_DIST_DIR) : undefined;
   if (clientDir && existsSync(clientDir)) {
-    app.use(express.static(clientDir, { index: false, maxAge: '1h' }));
+    app.use(
+      express.static(clientDir, {
+        index: false,
+        setHeaders: (res, file) => {
+          // Файлы с хешем в имени не меняются — кэш на год. Остальное (service worker,
+          // манифест, иконки) проверяется каждый раз, иначе обновление застрянет.
+          res.setHeader(
+            'Cache-Control',
+            file.includes(`${path.sep}assets${path.sep}`)
+              ? 'public, max-age=31536000, immutable'
+              : 'no-cache',
+          );
+        },
+      }),
+    );
     app.get(/^\/(?!api\/).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(clientDir, 'index.html'));
     });
   }

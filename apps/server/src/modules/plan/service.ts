@@ -171,7 +171,7 @@ export async function generatePlan(
 
   const missing = REQUIRED_CARD_SECTIONS.filter((s) => !isSectionFilled(card, s));
   if (missing.length > 0) {
-    throw new AppError(422, 'CARD_INCOMPLETE', 'Сначала заполни обязательные разделы карточки', {
+    throw new AppError(422, 'CARD_INCOMPLETE', 'Сначала заполни обязательные разделы профиля', {
       sections: missing,
     });
   }
@@ -182,7 +182,7 @@ export async function generatePlan(
     throw new AppError(
       422,
       'CARD_INCOMPLETE',
-      'Слишком мало доступных упражнений: проверь оборудование и ограничения в карточке',
+      'Слишком мало доступных упражнений: проверь оборудование и ограничения в профиле',
     );
   }
 

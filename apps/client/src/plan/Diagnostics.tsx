@@ -65,7 +65,7 @@ function Check({ check }: { check: DiagnosticCheck }) {
           <p className="check-summary">{check.last.summary}</p>
           <p className="plan-hint">
             Проверено {formatDate(check.last.date).replace(' г.', '')}. Вывод записан в «Слабые
-            места» карточки — перестрой план, чтобы тренер добавил это в тренировки.
+            места» профиля — перестрой план, чтобы тренер добавил это в тренировки.
           </p>
           <button type="button" className="link-button" onClick={() => setEditing(true)}>
             Проверить заново

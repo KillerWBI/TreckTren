@@ -54,7 +54,7 @@ function PasswordAccount({ email }: { email: string }) {
         <h2 id="delete-heading" className="group-title">
           Удаление аккаунта
         </h2>
-        <p>Удалятся карточка, все записи, история и фото. Вернуть их будет нельзя.</p>
+        <p>Удалятся профиль, все записи и история. Вернуть их будет нельзя.</p>
         {!confirming ? (
           <button
             type="button"

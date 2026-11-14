@@ -23,6 +23,8 @@ export function useSaveCard() {
         updatedAt: data.updatedAt,
       });
       void queryClient.invalidateQueries({ queryKey: VERSIONS_KEY });
+      // Норма калорий зависит от карточки.
+      void queryClient.invalidateQueries({ queryKey: ['day'] });
     },
   });
 }
