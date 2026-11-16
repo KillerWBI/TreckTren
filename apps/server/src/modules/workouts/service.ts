@@ -10,7 +10,7 @@ import {
   type WorkoutSetInput,
   type WorkoutSetView,
 } from '@trektren/shared';
-import type { AiProvider } from '../../ai/client.js';
+import { AiError, type AiProvider } from '../../ai/client.js';
 import { config } from '../../config.js';
 import { pool, withTransaction } from '../../db.js';
 import { AppError, notFound } from '../../errors.js';
@@ -29,6 +29,7 @@ interface WorkoutRow {
   finished_at: Date | null;
   notes: string | null;
   analysis_json: WorkoutAnalysis | null;
+  removed_slugs: string[];
 }
 
 interface SetRow {
@@ -118,6 +119,7 @@ export async function getWorkout(userId: string, id: string): Promise<WorkoutRes
       finishedAt: workout.finished_at?.toISOString() ?? null,
       notes: workout.notes,
       sets: sets.map(toSetView),
+      removedSlugs: workout.removed_slugs,
       analysis: workout.analysis_json,
     },
     session,
@@ -138,7 +140,8 @@ function toSetView(r: SetRow): WorkoutSetView {
 async function workoutRow(userId: string, id: string): Promise<WorkoutRow> {
   if (!z.uuid().safeParse(id).success) throw notFound('Тренировка не найдена');
   const { rows } = await pool.query<WorkoutRow>(
-    `SELECT id, session_id, date, readiness, started_at, finished_at, notes, analysis_json
+    `SELECT id, session_id, date, readiness, started_at, finished_at, notes, analysis_json,
+            removed_slugs
      FROM workouts WHERE id = $1 AND user_id = $2`,
     [id, userId],
   );
@@ -181,6 +184,32 @@ export async function deleteSet(userId: string, id: string, slug: string, setNo:
   );
 }
 
+/** Убрать упражнение из тренировки: подходы удаляются, в разборе его не будет ни «пропущенным», ни каким-то ещё. */
+export async function removeExercise(userId: string, id: string, slug: string) {
+  await openWorkout(userId, id);
+  await withTransaction(async (c) => {
+    await c.query(
+      `DELETE FROM workout_sets ws USING exercises e
+       WHERE ws.exercise_id = e.id AND ws.workout_id = $1 AND e.slug = $2`,
+      [id, slug],
+    );
+    await c.query(
+      `UPDATE workouts SET removed_slugs = array_append(removed_slugs, $2)
+       WHERE id = $1 AND NOT ($2 = ANY (removed_slugs))`,
+      [id, slug],
+    );
+  });
+}
+
+/** Вернуть убранное упражнение (из плана или добавленное) в тренировку. */
+export async function restoreExercise(userId: string, id: string, slug: string) {
+  await openWorkout(userId, id);
+  await pool.query(
+    `UPDATE workouts SET removed_slugs = array_remove(removed_slugs, $2) WHERE id = $1`,
+    [id, slug],
+  );
+}
+
 /**
  * Завершение: разбор по упражнениям, новые максимумы в «Силовые» (веса будущих тренировок
  * пересчитаются сами), рекорды, облегчение следующей тренировки, если эта далась тяжело.
@@ -205,7 +234,9 @@ export async function finishWorkout(
     getCard(userId),
   ]);
   const result = analyzeWorkout({
-    planned: current.session?.exercises ?? [],
+    planned: (current.session?.exercises ?? []).filter(
+      (e) => !workout.removed_slugs.includes(e.slug),
+    ),
     sets,
     exercises: ctx.exercises,
     maxes: ctx.maxes,
@@ -242,13 +273,12 @@ export async function finishWorkout(
     if (eased) nextChanges.push(`Следующая тренировка (${eased}) облегчена: веса −5%, запас +1.`);
   }
 
-  const coachNote = ai.enabled
-    ? await aiCoachNote(userId, ai, result.summary, result.exercises)
-    : null;
+  // Разбор от ИИ пишется отдельным запросом: завершение не ждёт провайдера и не зависает.
   const analysis: WorkoutAnalysis = {
     exercises: result.exercises,
     summary: result.summary,
-    coachNote,
+    coachNote: null,
+    coachStatus: ai.enabled ? 'pending' : 'disabled',
     nextChanges,
   };
 
@@ -344,19 +374,43 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const noteSchema = z.object({ note: z.string().min(1).max(500) });
 
-/** Короткий разбор от ИИ. Не ответил — не страшно: разбор по правилам уже есть. */
-async function aiCoachNote(
+/**
+ * Разбор тренировки от ИИ — отдельным запросом после завершения. Не получился — статус
+ * «unavailable» с причиной, разбор по правилам остаётся, повторить можно кнопкой.
+ */
+export async function writeCoachNote(
   userId: string,
+  id: string,
   ai: AiProvider,
-  summary: string,
-  exercises: WorkoutAnalysis['exercises'],
-): Promise<string | null> {
+): Promise<WorkoutResponse> {
+  const workout = await workoutRow(userId, id);
+  const analysis = workout.analysis_json;
+  if (!workout.finished_at || !analysis) {
+    throw new AppError(409, 'VERSION_CONFLICT', 'Тренировка ещё не завершена');
+  }
+  if (analysis.coachNote) return getWorkout(userId, id);
+
+  const save = async (patch: Partial<WorkoutAnalysis>) => {
+    const next: WorkoutAnalysis = { ...analysis, ...patch };
+    if (patch.coachError === undefined) delete next.coachError;
+    await pool.query('UPDATE workouts SET analysis_json = $2 WHERE id = $1', [
+      id,
+      JSON.stringify(next),
+    ]);
+    return getWorkout(userId, id);
+  };
+
+  if (!ai.enabled) return save({ coachStatus: 'disabled' });
+
   const today = await userToday(userId);
   const { rows } = await pool.query<{ requests: number }>(
     `SELECT requests FROM ai_usage WHERE user_id = $1 AND date = $2 AND kind = 'workout'`,
     [userId, today],
   );
-  if ((rows[0]?.requests ?? 0) >= config.AI_DAILY_LIMIT) return null;
+  if ((rows[0]?.requests ?? 0) >= config.AI_DAILY_LIMIT) {
+    return save({ coachStatus: 'limit', coachError: 'На сегодня лимит разборов ИИ исчерпан' });
+  }
+
   try {
     const result = await ai.generateJson({
       name: 'workout_note',
@@ -371,7 +425,7 @@ async function aiCoachNote(
         },
         {
           role: 'user',
-          content: `${summary}\n${exercises.map((e) => `${e.name}: ${e.text}`).join('\n')}`,
+          content: `${analysis.summary}\n${analysis.exercises.map((e) => `${e.name}: ${e.text}`).join('\n')}`,
         },
       ],
       validate: (raw) => {
@@ -385,9 +439,17 @@ async function aiCoachNote(
        DO UPDATE SET requests = ai_usage.requests + 1, tokens = ai_usage.tokens + EXCLUDED.tokens`,
       [userId, today, result.tokens],
     );
-    return result.value.note;
+    return save({ coachNote: result.value.note, coachStatus: 'ok' });
   } catch (err) {
-    console.warn(`[ai] разбор тренировки без ИИ: ${(err as Error).message}`);
-    return null;
+    if (!(err instanceof AiError)) throw err;
+    console.warn(`[ai] разбор тренировки не получен: ${err.kind}: ${err.message}`);
+    const reasons: Record<AiError['kind'], string> = {
+      timeout: 'ИИ не ответил за 30 секунд',
+      rate_limited: 'Лимит запросов к ИИ исчерпан, подожди минуту',
+      http: 'ИИ сейчас недоступен',
+      bad_response: 'ИИ вернул ответ, который не удалось прочитать',
+      not_configured: 'ИИ не подключён',
+    };
+    return save({ coachStatus: 'unavailable', coachError: reasons[err.kind] });
   }
 }

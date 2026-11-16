@@ -31,7 +31,21 @@ export function createWorkoutRouter(ai: AiProvider) {
     res.status(204).end();
   });
 
-  router.post('/workouts/:id/finish', requireAuth, aiLimiter, async (req, res) => {
+  router.delete('/workouts/:id/exercises/:slug', requireAuth, async (req, res) => {
+    await workouts.removeExercise(userIdOf(req), String(req.params.id), String(req.params.slug));
+    res.status(204).end();
+  });
+
+  router.post('/workouts/:id/exercises/:slug', requireAuth, async (req, res) => {
+    await workouts.restoreExercise(userIdOf(req), String(req.params.id), String(req.params.slug));
+    res.status(204).end();
+  });
+
+  router.post('/workouts/:id/coach-note', requireAuth, aiLimiter, async (req, res) => {
+    res.json(await workouts.writeCoachNote(userIdOf(req), String(req.params.id), ai));
+  });
+
+  router.post('/workouts/:id/finish', requireAuth, async (req, res) => {
     const body = parseBody(finishWorkoutSchema, req.body ?? {});
     res.json(await workouts.finishWorkout(userIdOf(req), String(req.params.id), body.notes, ai));
   });

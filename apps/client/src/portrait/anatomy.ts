@@ -1,4 +1,4 @@
-import type { BodyZone, MuscleGroup, PortraitBody } from '@trektren/shared';
+import type { BodyZone, MeasureSite, MuscleGroup, PortraitBody } from '@trektren/shared';
 
 /**
  * Анатомическая фигура в SVG, собранная из данных человека.
@@ -58,6 +58,33 @@ export interface Shape {
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** Какая часть манекена повторяет какой замер. */
+const SITE_BUILD: Record<MeasureSite, keyof Build> = {
+  neck: 'neck',
+  shoulders: 'delts',
+  chest: 'chest',
+  waist: 'waist',
+  hips: 'hips',
+  arm: 'arm',
+  forearm: 'forearm',
+  thigh: 'thigh',
+  calf: 'calf',
+};
+
+/** Обхваты шаблонной фигуры (рост 180 см), см: мужчина, женщина. Замер делится на них. */
+const REF_GIRTH: Record<MeasureSite, readonly [number, number]> = {
+  neck: [38, 33],
+  shoulders: [115, 102],
+  chest: [100, 92],
+  waist: [84, 74],
+  hips: [98, 100],
+  arm: [31, 27],
+  forearm: [27, 24],
+  thigh: [58, 57],
+  calf: [37, 35],
+};
+
 const avg = (...v: Array<number | null>) => {
   const k = v.filter((x): x is number => x !== null);
   return k.length ? k.reduce((a, b) => a + b, 0) / k.length : null;
@@ -85,18 +112,46 @@ export function shapeOf(body: PortraitBody, growth = 1): Shape {
   };
   // Жир сверх сухого: у мужчин копится на животе, у женщин — на бёдрах и ягодицах.
   const fat = Math.max(0, (body.bodyFatPct - (female ? 16 : 9)) / 10);
-  const add = (k: number) => 1 + fat * k;
-  const skin: Build = {
-    neck: lean.neck * add(0.08),
-    delts: lean.delts * add(0.04),
-    chest: lean.chest * add(female ? 0.07 : 0.07),
-    waist: lean.waist * add(female ? 0.12 : 0.2),
-    hips: lean.hips * add(female ? 0.15 : 0.09),
-    arm: lean.arm * add(0.15),
-    forearm: lean.forearm * add(0.06),
-    thigh: lean.thigh * add(female ? 0.18 : 0.12),
-    calf: lean.calf * add(0.06),
-  };
+  const fatK: Record<keyof Build, number> = female
+    ? {
+        neck: 0.08,
+        delts: 0.04,
+        chest: 0.07,
+        waist: 0.12,
+        hips: 0.15,
+        arm: 0.15,
+        forearm: 0.06,
+        thigh: 0.18,
+        calf: 0.06,
+      }
+    : {
+        neck: 0.08,
+        delts: 0.04,
+        chest: 0.07,
+        waist: 0.2,
+        hips: 0.09,
+        arm: 0.15,
+        forearm: 0.06,
+        thigh: 0.12,
+        calf: 0.06,
+      };
+  const skin = {} as Build;
+  for (const key of Object.keys(fatK) as Array<keyof Build>) {
+    skin[key] = lean[key] * (1 + fat * fatK[key]);
+  }
+
+  // Замеры лентой важнее модели: кожа повторяет обхват, мышцы не толще кожи.
+  if (body.girths) {
+    const k = clamp(body.heightCm / 180, 0.8, 1.2);
+    for (const site of Object.keys(body.girths) as MeasureSite[]) {
+      const value = body.girths[site];
+      if (value === undefined) continue;
+      const key = SITE_BUILD[site];
+      const ratio = clamp(value / (REF_GIRTH[site][female ? 1 : 0] * k), 0.7, 1.5);
+      skin[key] = ratio;
+      lean[key] = Math.min(lean[key], ratio / (1 + fat * fatK[key]));
+    }
+  }
   return {
     frame: {
       shoulders: female ? 0.9 : 1,

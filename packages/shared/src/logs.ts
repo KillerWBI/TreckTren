@@ -67,6 +67,14 @@ export interface WorkoutAnalysis {
   summary: string;
   /** Короткий разбор от ИИ, если он подключён. */
   coachNote: string | null;
+  /**
+   * Состояние разбора от ИИ: pending — ещё пишется, ok — готов, unavailable — ИИ не ответил
+   * (можно повторить), limit — суточный лимит, disabled — ИИ не подключён.
+   * Нет поля — разбор сохранён до появления статусов.
+   */
+  coachStatus?: 'pending' | 'ok' | 'unavailable' | 'limit' | 'disabled';
+  /** Почему ИИ не ответил — коротко, для человека. */
+  coachError?: string;
   /** Что тренер поменял в следующих тренировках. */
   nextChanges: string[];
 }
@@ -80,6 +88,8 @@ export interface WorkoutView {
   finishedAt: string | null;
   notes: string | null;
   sets: WorkoutSetView[];
+  /** Упражнения, которые убрали из тренировки: в разбор не идут. */
+  removedSlugs: string[];
   analysis: WorkoutAnalysis | null;
 }
 

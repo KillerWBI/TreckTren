@@ -16,6 +16,7 @@ import { Slider } from '../components/Slider';
 import { ErrorState } from '../components/States';
 import { num, todayIso } from '../format';
 import { MEAL_LABELS, MealForm } from '../day/MealForm';
+import { MeasureReminder } from '../measurements/MeasurementsCard';
 import {
   useDay,
   useDeleteMeal,
@@ -62,6 +63,8 @@ export function TodayPage() {
           <ChevronRight size={26} strokeWidth={2.6} aria-hidden="true" />
         </button>
       </div>
+
+      {date === today && <MeasureReminder />}
 
       {day.isPending && <p className="state">Загружаю день…</p>}
       {day.isError && <ErrorState error={day.error} onRetry={() => void day.refetch()} />}

@@ -144,6 +144,31 @@ export function useDeleteSet(workoutId: string) {
   });
 }
 
+/** Убрать упражнение из тренировки вместе с записанными подходами. */
+export function useRemoveExercise(workoutId: string) {
+  return useMutation({
+    mutationFn: (slug: string) =>
+      api<void>(`/workouts/${workoutId}/exercises/${slug}`, { method: 'DELETE' }),
+  });
+}
+
+/** Вернуть ранее убранное упражнение. */
+export function useRestoreExercise(workoutId: string) {
+  return useMutation({
+    mutationFn: (slug: string) =>
+      api<void>(`/workouts/${workoutId}/exercises/${slug}`, { method: 'POST' }),
+  });
+}
+
+/** Разбор тренировки от ИИ: отдельный запрос после завершения, можно повторить. */
+export function useCoachNote(workoutId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<WorkoutResponse>(`/workouts/${workoutId}/coach-note`, { method: 'POST' }),
+    onSuccess: (data) => queryClient.setQueryData(workoutKey(workoutId), data),
+  });
+}
+
 export function useFinishWorkout(workoutId: string) {
   const queryClient = useQueryClient();
   return useMutation({

@@ -3863,3 +3863,122 @@ input[type='range'].range[data-empty]::-webkit-slider-thumb {
   padding: 5px 12px;
   font-size: var(--t-xs);
 }
+
+/* Замеры тела, удаление упражнений, прошлая еда */
+
+.measure-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+}
+
+.measure-card .notice[data-status='ok'],
+.measure-card .notice[data-status='soon'] {
+  background: var(--green-soft);
+}
+
+.measure-card .notice[data-status='due'],
+.measure-card .notice[data-status='none'] {
+  background: var(--yellow-soft);
+}
+
+.measure-rules summary,
+.measure-hint summary {
+  cursor: pointer;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.measure-rules ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  font-size: var(--t-sm);
+}
+
+.measure-form {
+  display: grid;
+  gap: 12px;
+}
+
+.measure-field {
+  display: grid;
+  gap: 4px;
+}
+
+.measure-hint p {
+  margin: 6px 0 0;
+  font-size: var(--t-sm);
+}
+
+.measure-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.measure-table th,
+.measure-table td {
+  padding: 6px 4px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-table th:first-child {
+  text-align: left;
+  font-weight: 700;
+}
+
+.measure-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.measure-history li {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.measure-history-date {
+  font-weight: 800;
+}
+
+.measure-history-values {
+  font-size: var(--t-xs);
+}
+
+.measure-reminder {
+  display: grid;
+  gap: 8px;
+}
+
+.danger-link {
+  color: var(--red-edge);
+}
+
+.confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--red-soft);
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+
+.recent-toggle {
+  justify-self: start;
+}

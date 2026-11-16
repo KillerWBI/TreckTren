@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { MUSCLE_GROUPS } from './athlete-card.js';
+import type { Girths } from './measurements.js';
 
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 
@@ -16,6 +17,12 @@ export interface PortraitBody {
   bodyFatPct: number;
   /** Процент жира посчитан по ИМТ и возрасту, а не введён. */
   bodyFatEstimated: boolean;
+  /** Откуда процент жира: введён, по замерам шеи и талии (метод ВМС США) или по ИМТ и возрасту. */
+  bodyFatSource?: 'entered' | 'tape' | 'bmi';
+  /** Обхваты в сантиметрах: манекен подгоняется под них. Свежайшее значение по каждому замеру. */
+  girths?: Girths;
+  /** Дата самого свежего замера. */
+  girthsDate?: string;
   /** Развитие мышц 0…1 по силовым относительно веса тела; null — данных нет. */
   levels: Record<MuscleGroup, number | null>;
 }
@@ -94,6 +101,8 @@ export interface PortraitResponse {
   completeness: { filled: number; total: number };
   /** Каким был в начале пути — для сравнения «было / стало». */
   start: { date: string; body: PortraitBody } | null;
+  /** Старые портреты: по одному на каждый замер, чтобы сравнивать с любым. Новые сверху. */
+  snapshots: Array<{ id: string; date: string; body: PortraitBody }>;
   /** Подробно по каждой мышце: статус, движения, цели и упражнения. */
   muscles: MuscleDetail[];
   /** Средний уровень мышц — с ним сравнивается каждая. */

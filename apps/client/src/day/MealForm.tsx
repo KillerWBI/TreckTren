@@ -64,6 +64,8 @@ export function MealForm({
   const [rows, setRows] = useState<ItemRow[] | null>(mode === 'manual' ? [EMPTY] : null);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  // Список прошлой еды длинный и мусорит экран — по умолчанию свёрнут.
+  const [showRecent, setShowRecent] = useState(false);
 
   const reset = () => {
     setText('');
@@ -138,21 +140,33 @@ export function MealForm({
 
       {day.recentMeals.length > 0 && (
         <div className="recent-meals">
-          <span className="field-hint">Повторить:</span>
-          <div className="chips">
-            {day.recentMeals.map((m) => (
-              <button
-                key={m.title}
-                type="button"
-                className="chip chip-meal"
-                onClick={() => repeat(m)}
-                disabled={add.isPending}
-              >
-                {m.title.length > 34 ? `${m.title.slice(0, 32)}…` : m.title}
-                <span className="chip-kcal">{num(m.totals.kcal)} ккал</span>
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            className="link-button recent-toggle"
+            aria-expanded={showRecent}
+            aria-controls="recent-meals-list"
+            onClick={() => setShowRecent((v) => !v)}
+          >
+            {showRecent
+              ? 'Скрыть прошлую еду'
+              : `Повторить прошлую еду (${day.recentMeals.length})`}
+          </button>
+          {showRecent && (
+            <div className="chips" id="recent-meals-list">
+              {day.recentMeals.map((m) => (
+                <button
+                  key={m.title}
+                  type="button"
+                  className="chip chip-meal"
+                  onClick={() => repeat(m)}
+                  disabled={add.isPending}
+                >
+                  {m.title.length > 34 ? `${m.title.slice(0, 32)}…` : m.title}
+                  <span className="chip-kcal">{num(m.totals.kcal)} ккал</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

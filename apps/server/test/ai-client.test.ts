@@ -223,3 +223,52 @@ describe('ИИ-клиент: модели по задачам и Claude', () => 
     });
   });
 });
+
+describe('ИИ-клиент: быстрые задачи', () => {
+  const gemini = (impl: typeof fetch) =>
+    openAiCompatible({
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: 'k',
+      model: 'gemini-x',
+      fetchImpl: impl,
+    });
+
+  it('Gemini: еда и заметки без долгих рассуждений, план — как обычно', async () => {
+    const { impl, calls } = fakeFetch([reply('{"answer": 1}'), reply('{"answer": 2}')]);
+    const ai = gemini(impl);
+    await ai.generateJson({ ...request, task: 'food' });
+    await ai.generateJson({ ...request, task: 'plan' });
+    expect(calls[0]!.body.reasoning_effort).toBe('low');
+    expect(calls[1]!.body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('провайдер не знает reasoning_effort — повтор без него, режим JSON не меняется', async () => {
+    const { impl, calls } = fakeFetch([
+      () => new Response('{"error":"Unknown name \\"reasoning_effort\\""}', { status: 400 }),
+      reply('{"answer": 3}'),
+    ]);
+    expect((await gemini(impl).generateJson({ ...request, task: 'note' })).value).toEqual({
+      answer: 3,
+    });
+    expect(calls[1]!.body).not.toHaveProperty('reasoning_effort');
+    expect(calls[1]!.body.response_format).toMatchObject({ type: 'json_schema' });
+  });
+
+  it('не Gemini — параметра нет; долгий ответ на быструю задачу обрывается таймаутом', async () => {
+    const { impl, calls } = fakeFetch([reply('{"answer": 1}')]);
+    await provider(impl).generateJson({ ...request, task: 'food' });
+    expect(calls[0]!.body).not.toHaveProperty('reasoning_effort');
+
+    const hang = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () =>
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+        );
+      })) as unknown as typeof fetch;
+    const err = (await provider(hang)
+      .generateJson({ ...request, task: 'food', timeoutMs: 20 })
+      .catch((e: unknown) => e)) as AiError;
+    expect(err).toBeInstanceOf(AiError);
+    expect(err.kind).toBe('timeout');
+  });
+});

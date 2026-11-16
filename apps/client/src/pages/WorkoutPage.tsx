@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import {
@@ -16,9 +16,12 @@ import { num, plural } from '../format';
 import { flushOutbox, outboxItems, useOutbox } from '../offline/outbox';
 import { shortDay } from '../plan/dates';
 import {
+  useCoachNote,
   useDeleteSet,
   useExercises,
   useFinishWorkout,
+  useRemoveExercise,
+  useRestoreExercise,
   useSaveSet,
   useStartWorkout,
   useWorkout,
@@ -58,8 +61,12 @@ function Logger({ data }: { data: WorkoutResponse }) {
   const saveSet = useSaveSet(workout.id);
   const removeSet = useDeleteSet(workout.id);
   const finish = useFinishWorkout(workout.id);
+  const dropExercise = useRemoveExercise(workout.id);
+  const restoreExercise = useRestoreExercise(workout.id);
 
-  const planned = session?.exercises ?? [];
+  const [removed, setRemoved] = useState<string[]>(workout.removedSlugs);
+  const allPlanned = session?.exercises ?? [];
+  const planned = allPlanned.filter((p) => !removed.includes(p.slug));
   const [extra, setExtra] = useState<string[]>(() =>
     [...new Set(workout.sets.map((s) => s.exerciseSlug))].filter(
       (slug) => !planned.some((p) => p.slug === slug),
@@ -88,6 +95,47 @@ function Logger({ data }: { data: WorkoutResponse }) {
     });
   }, [waiting.length]);
   const slugs = [...planned.map((p) => p.slug), ...extra];
+
+  /** Убрать упражнение целиком: подходы удаляются на сервере, в разбор оно не попадёт. */
+  const removeExerciseFully = async (slug: string) => {
+    setError('');
+    // Подходы, ждущие сети, сначала уходят на сервер — иначе они вернут упражнение после удаления.
+    await flushOutbox();
+    dropExercise.mutate(slug, {
+      onSuccess: () => {
+        setExtra((x) => x.filter((s) => s !== slug));
+        setRemoved((r) => (r.includes(slug) ? r : [...r, slug]));
+        setRows((r) => {
+          const { [slug]: _gone, ...rest } = r;
+          return rest;
+        });
+      },
+      onError: (err) =>
+        setError(err instanceof ApiError ? err.message : 'Не получилось убрать. Повтори.'),
+    });
+  };
+
+  const addExercise = (slug: string) => {
+    const plan = allPlanned.find((p) => p.slug === slug);
+    const bring = () => {
+      if (plan) {
+        setRemoved((r) => r.filter((s) => s !== slug));
+        setRows((r) => ({ ...r, ...initialRows([plan], []) }));
+      } else {
+        setExtra((x) => [...x, slug]);
+        setRows((r) => ({ ...r, [slug]: [emptyRow('2')] }));
+      }
+    };
+    if (removed.includes(slug)) {
+      restoreExercise.mutate(slug, {
+        onSuccess: bring,
+        onError: (err) =>
+          setError(err instanceof ApiError ? err.message : 'Не получилось вернуть. Повтори.'),
+      });
+    } else {
+      bring();
+    }
+  };
 
   const update = (slug: string, index: number, patch: Partial<Row>) =>
     setRows((r) => ({
@@ -245,17 +293,12 @@ function Logger({ data }: { data: WorkoutResponse }) {
           onSave={(i) => save(slug, i)}
           onAdd={() => addRow(slug)}
           onRemove={(i) => removeRow(slug, i)}
+          onRemoveExercise={() => void removeExerciseFully(slug)}
+          removing={dropExercise.isPending}
         />
       ))}
 
-      <AddExercise
-        exercises={exercises.data ?? []}
-        taken={slugs}
-        onAdd={(slug) => {
-          setExtra((x) => [...x, slug]);
-          setRows((r) => ({ ...r, [slug]: [emptyRow('2')] }));
-        }}
-      />
+      <AddExercise exercises={exercises.data ?? []} taken={slugs} onAdd={addExercise} />
 
       <div className="field workout-notes">
         <label htmlFor="workout-notes">Заметка к тренировке</label>
@@ -331,9 +374,23 @@ interface CardProps {
   onSave: (index: number) => void;
   onAdd: () => void;
   onRemove: (index: number) => void;
+  onRemoveExercise: () => void;
+  removing: boolean;
 }
 
-function ExerciseCard({ slug, plan, info, rows, onChange, onSave, onAdd, onRemove }: CardProps) {
+function ExerciseCard({
+  slug,
+  plan,
+  info,
+  rows,
+  onChange,
+  onSave,
+  onAdd,
+  onRemove,
+  onRemoveExercise,
+  removing,
+}: CardProps) {
+  const [confirming, setConfirming] = useState(false);
   const name = plan?.name ?? info?.name ?? slug;
   const perHand = info?.perHand ?? (plan?.load.kind === 'kg' && plan.load.perHand);
   const bodyweight = info?.bodyweight ?? plan?.load.kind === 'bodyweight';
@@ -457,7 +514,44 @@ function ExerciseCard({ slug, plan, info, rows, onChange, onSave, onAdd, onRemov
             Убрать последний
           </button>
         )}
+        {!confirming && (
+          <button
+            type="button"
+            className="link-button danger-link"
+            onClick={() => (done > 0 ? setConfirming(true) : onRemoveExercise())}
+            disabled={removing}
+            aria-label={`Убрать упражнение целиком: ${name}`}
+          >
+            Убрать упражнение
+          </button>
+        )}
       </div>
+      {confirming && (
+        <div className="confirm-row" role="alert">
+          <span>
+            Убрать «{name}» и {done}{' '}
+            {plural(done, ['записанный подход', 'записанных подхода', 'записанных подходов'])}?
+          </span>
+          <button
+            type="button"
+            className="button button-small"
+            onClick={() => {
+              setConfirming(false);
+              onRemoveExercise();
+            }}
+            disabled={removing}
+          >
+            Да, убрать
+          </button>
+          <button
+            type="button"
+            className="button button-small button-secondary"
+            onClick={() => setConfirming(false)}
+          >
+            Отмена
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -475,7 +569,7 @@ function AddExercise({
   if (options.length === 0) return null;
   return (
     <label className="field add-exercise">
-      <span>Добавить упражнение вне плана</span>
+      <span>Добавить упражнение</span>
       <select className="select" value="" onChange={(e) => e.target.value && onAdd(e.target.value)}>
         <option value="">Выбери…</option>
         {options.map((e) => (
@@ -523,16 +617,70 @@ const VERDICT_TEXT: Record<ExerciseVerdict, string> = {
 
 function Analysis({ data, analysis }: { data: WorkoutResponse; analysis: WorkoutAnalysis }) {
   const { workout, session } = data;
+  const coach = useCoachNote(workout.id);
+  const asked = useRef(false);
+  const status = analysis.coachStatus;
+  // Запрос упал по сети — статус на сервере остался «pending», но ждать уже нечего.
+  const waiting = coach.isPending || (status === 'pending' && !coach.isError);
+
+  // Завершили тренировку — разбор от ИИ запрашиваем сами, один раз.
+  useEffect(() => {
+    if (status === 'pending' && !asked.current) {
+      asked.current = true;
+      coach.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- запрос один на открытие экрана
+  }, [status]);
+
+  const failed =
+    !analysis.coachNote &&
+    !waiting &&
+    (status === 'unavailable' ||
+      status === 'limit' ||
+      status === undefined ||
+      (status === 'pending' && coach.isError));
+  const errorText = coach.isError
+    ? coach.error instanceof ApiError
+      ? coach.error.message
+      : 'Нет связи с сервером.'
+    : (analysis.coachError ?? null);
+
   return (
     <main className="page workout">
       <p className="workout-date">{shortDay(workout.date)}</p>
       <h1 className="page-title">Разбор: {session?.title ?? 'тренировка'}</h1>
       <p className="page-lead">{analysis.summary}</p>
+
       {analysis.coachNote && (
         <blockquote className="coach-note">
           <p>{analysis.coachNote}</p>
         </blockquote>
       )}
+      {waiting && !analysis.coachNote && (
+        <p className="plan-hint" role="status">
+          Тренер пишет разбор… до 30 секунд. Расчёт по упражнениям уже готов, он ниже.
+        </p>
+      )}
+      {failed && (
+        <div className="notice notice-warn" role="alert">
+          <p>
+            Разбор от ИИ не получен{errorText ? `: ${errorText.toLowerCase()}` : ''}. Ниже только
+            расчёт по правилам.
+          </p>
+          <button
+            type="button"
+            className="button button-small"
+            onClick={() => coach.mutate()}
+            disabled={coach.isPending}
+          >
+            Повторить разбор
+          </button>
+        </div>
+      )}
+      {status === 'disabled' && !analysis.coachNote && (
+        <p className="plan-hint">ИИ не подключён — разбор только по правилам.</p>
+      )}
+
       {analysis.nextChanges.length > 0 && (
         <section className="plan-step" aria-labelledby="next-heading">
           <h2 id="next-heading" className="group-title">
@@ -545,6 +693,7 @@ function Analysis({ data, analysis }: { data: WorkoutResponse; analysis: Workout
           </ul>
         </section>
       )}
+      <h2 className="group-title">По упражнениям (расчёт по правилам)</h2>
       <ul className="test-lifts workout-verdicts">
         {analysis.exercises.map((e) => (
           <li key={e.slug} className="test-lift" data-verdict={e.verdict}>

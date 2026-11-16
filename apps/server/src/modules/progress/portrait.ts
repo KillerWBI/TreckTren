@@ -7,6 +7,7 @@ import {
   type MuscleGroup,
   type MuscleLift,
   type MuscleStatus,
+  type Girths,
   type PlannedSession,
   type PortraitBody,
   type PortraitResponse,
@@ -16,6 +17,7 @@ import { pool } from '../../db.js';
 import { getCard } from '../card/service.js';
 import { ageOn } from '../day/norm.js';
 import { loadExercises, type Exercise } from '../exercises/repo.js';
+import { latestGirths, loadMeasurements } from '../measurements/repo.js';
 import { filterAvailable } from '../plan/availability.js';
 import { loadFor } from '../plan/loads.js';
 import { estimateMaxes } from '../strength/estimate.js';
@@ -413,24 +415,55 @@ export function muscleDetails(input: DetailInput): {
   return { muscles, median };
 }
 
-function bodyOf(card: AthleteCard, weightKg: number, date: string): PortraitBody {
+/**
+ * Процент жира по обхватам шеи и талии (метод ВМС США; женщинам нужны ещё бёдра).
+ * Точнее, чем по ИМТ, но тоже оценка: ошибка около 3–4%.
+ */
+export function bodyFatFromTape(girths: Girths, heightCm: number, female: boolean): number | null {
+  const { neck, waist, hips } = girths;
+  if (!neck || !waist) return null;
+  if (female) {
+    if (!hips || waist + hips - neck <= 0) return null;
+    const v =
+      495 / (1.29579 - 0.35004 * Math.log10(waist + hips - neck) + 0.221 * Math.log10(heightCm)) -
+      450;
+    return Number.isFinite(v) ? Math.round(Math.min(50, Math.max(5, v))) : null;
+  }
+  if (waist - neck <= 0) return null;
+  const v =
+    495 / (1.0324 - 0.19077 * Math.log10(waist - neck) + 0.15456 * Math.log10(heightCm)) - 450;
+  return Number.isFinite(v) ? Math.round(Math.min(45, Math.max(3, v))) : null;
+}
+
+function bodyOf(
+  card: AthleteCard,
+  weightKg: number,
+  date: string,
+  tape?: { girths: Girths; date: string | null },
+): PortraitBody {
   const female = card.basics?.sex === 'female';
   const heightCm = card.basics?.heightCm ?? (female ? 165 : 178);
   const age = card.basics?.birthDate ? ageOn(card.basics.birthDate, date) : 30;
   const bmi = weightKg / (heightCm / 100) ** 2;
+  const girths = tape?.girths ?? {};
+  const hasGirths = Object.keys(girths).length > 0;
+  const entered = card.basics?.bodyFatPct;
+  const fromTape = entered === undefined ? bodyFatFromTape(girths, heightCm, female) : null;
   return {
     sex: female ? 'female' : 'male',
     heightCm,
     weightKg,
-    bodyFatPct: card.basics?.bodyFatPct ?? estimateBodyFat(bmi, age, female),
-    bodyFatEstimated: card.basics?.bodyFatPct === undefined,
+    bodyFatPct: entered ?? fromTape ?? estimateBodyFat(bmi, age, female),
+    bodyFatEstimated: entered === undefined,
+    bodyFatSource: entered !== undefined ? 'entered' : fromTape !== null ? 'tape' : 'bmi',
+    ...(hasGirths ? { girths, ...(tape?.date ? { girthsDate: tape.date } : {}) } : {}),
     levels: muscleLevels(card, weightKg),
   };
 }
 
 export async function getPortrait(userId: string): Promise<PortraitResponse> {
   const today = await userToday(userId);
-  const [{ card }, weights, first, exercises, upcoming] = await Promise.all([
+  const [{ card }, weights, first, exercises, upcoming, measured] = await Promise.all([
     getCard(userId),
     pool.query<{ date: string; weight_kg: number }>(
       `SELECT date, weight_kg FROM weight_logs
@@ -449,7 +482,9 @@ export async function getPortrait(userId: string): Promise<PortraitResponse> {
       'SELECT planned_json FROM scheduled_sessions WHERE user_id = $1 AND date >= $2',
       [userId, today],
     ),
+    loadMeasurements(userId),
   ]);
+  const tape = latestGirths(measured);
 
   // Вес: средняя за 7 дней по утрам, если взвешиваний 3+, иначе последнее, иначе карточка.
   const lastWeek = weights.rows.filter((r) => r.date > addDays(today, -7));
@@ -466,7 +501,7 @@ export async function getPortrait(userId: string): Promise<PortraitResponse> {
     weightSource = 'card';
   }
 
-  const body = bodyOf(card, weightKg, today);
+  const body = bodyOf(card, weightKg, today, tape);
   const known = MUSCLE_GROUPS.map((m) => body.levels[m]).filter((v): v is number => v !== null);
   const mean = known.length ? known.reduce((a, b) => a + b, 0) / known.length : null;
 
@@ -541,6 +576,11 @@ export async function getPortrait(userId: string): Promise<PortraitResponse> {
     injuries,
     completeness: { filled, total: sections.length },
     start,
+    // Последний снимок — это и есть текущий портрет, его с самим собой не сравнить.
+    snapshots: measured
+      .slice(1)
+      .filter((m) => m.body !== null)
+      .map((m) => ({ id: m.id, date: m.date, body: m.body! })),
     muscles: details.muscles,
     medianLevel: details.median,
   };

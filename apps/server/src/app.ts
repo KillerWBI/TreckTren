@@ -11,6 +11,7 @@ import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requestLog } from './middleware/request-log.js';
 import { createAuthRouter } from './modules/auth/routes.js';
 import { cardRouter } from './modules/card/routes.js';
+import { measurementsRouter } from './modules/measurements/routes.js';
 import { createPlanRouter } from './modules/plan/routes.js';
 import { diagnosticsRouter } from './modules/strength/diagnostics.js';
 import { strengthRouter } from './modules/strength/routes.js';
@@ -49,6 +50,7 @@ export function createApp({ authMode = config.AUTH_MODE, ai = aiFromConfig() }: 
   });
   api.use(createAuthRouter(authMode));
   api.use(cardRouter);
+  api.use(measurementsRouter);
   api.use(createPlanRouter(ai));
   api.use(strengthRouter);
   api.use(diagnosticsRouter);

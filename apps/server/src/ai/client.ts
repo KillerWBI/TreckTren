@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { config } from '../config.js';
+import { config, isTest } from '../config.js';
 
 export type JsonMode = 'json_schema' | 'json_object' | 'none';
 
@@ -33,6 +33,8 @@ export interface JsonRequest<T> {
   /** Проверка ответа: схема плюс доменные правила. Ошибки уходят модели на одно исправление. */
   validate: (raw: unknown) => { ok: true; value: T } | { ok: false; errors: string[] };
   maxTokens?: number;
+  /** Свой таймаут запроса, мс. Без него: 30 с для еды и заметок, AI_TIMEOUT_MS для остального. */
+  timeoutMs?: number;
 }
 
 export interface JsonResult<T> {
@@ -61,6 +63,12 @@ export interface OpenAiCompatibleOptions {
 
 const MODE_ORDER: JsonMode[] = ['json_schema', 'json_object', 'none'];
 
+/** Быстрые задачи: короткий ответ, думать долго незачем — таймаут 30 с. */
+const FAST_TASKS = new Set<AiTask>(['food', 'note']);
+/** Где Gemini рассуждает коротко: всё, кроме плана — план сложный, там рассуждения нужны. */
+const LOW_EFFORT_TASKS = new Set<AiTask>(['food', 'note', 'review']);
+const FAST_TIMEOUT_MS = 30_000;
+
 /**
  * Клиент для любого OpenAI-совместимого API: Gemini, Groq, OpenRouter, Claude.
  * Провайдер меняется переменными AI_BASE_URL, AI_API_KEY и AI_MODEL — без правок кода.
@@ -69,6 +77,10 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const strict = /anthropic\.com/.test(baseUrl);
+  const isGoogle = /generativelanguage\.googleapis\.com/.test(baseUrl);
+  // Gemini по умолчанию «думает» долго — на разборе еды это десятки секунд. Если провайдер
+  // параметр не принял, выключаем его до перезапуска.
+  let sendEffort = isGoogle;
   // Режим, который провайдер принял, запоминаем на время жизни процесса.
   let mode: JsonMode = options.jsonMode ?? 'json_schema';
 
@@ -76,6 +88,12 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
     const schema = toJsonSchema(request.schema);
     for (;;) {
       const model = (request.task && options.taskModels?.[request.task]) || options.model;
+      const fast = request.task !== undefined && FAST_TASKS.has(request.task);
+      const timeoutMs =
+        request.timeoutMs ??
+        (fast
+          ? Math.min(options.timeoutMs ?? FAST_TIMEOUT_MS, FAST_TIMEOUT_MS)
+          : (options.timeoutMs ?? 90_000));
       const body: Record<string, unknown> = {
         model,
         // Без json_schema модель не видит схему из response_format — кладём её в промпт.
@@ -84,6 +102,8 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
         max_tokens: request.maxTokens ?? 16_000,
       };
       if (options.temperature !== undefined) body.temperature = options.temperature;
+      const lowEffort = request.task !== undefined && LOW_EFFORT_TASKS.has(request.task);
+      if (sendEffort && lowEffort) body.reasoning_effort = 'low';
       if (mode === 'json_schema') {
         // Claude принимает только строгую схему; Gemini строгую с additionalProperties отклоняет.
         body.response_format = {
@@ -97,7 +117,9 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
       }
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 90_000);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const startedAt = Date.now();
+      const tag = `[ai] ${request.task ?? request.name} ${model}`;
       let res: Response;
       try {
         res = await fetchImpl(`${baseUrl}/chat/completions`, {
@@ -110,27 +132,45 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
           signal: controller.signal,
         });
       } catch (err) {
-        if ((err as Error).name === 'AbortError')
+        if ((err as Error).name === 'AbortError') {
+          console.warn(`${tag}: нет ответа за ${Date.now() - startedAt} мс (${mode})`);
           throw new AiError('timeout', 'ИИ не ответил вовремя');
+        }
+        console.warn(`${tag}: сеть: ${shorten((err as Error).message, 120)}`);
         throw new AiError('http', 'ИИ недоступен');
       } finally {
         clearTimeout(timer);
       }
+      const spent = Date.now() - startedAt;
 
-      if (res.status === 429) throw new AiError('rate_limited', 'Лимит запросов к ИИ исчерпан');
-      if (res.status === 400 && mode !== 'none') {
+      if (res.status === 429) {
+        console.warn(`${tag}: 429 за ${spent} мс`);
+        throw new AiError('rate_limited', 'Лимит запросов к ИИ исчерпан');
+      }
+      if (res.status === 401 || res.status === 403) {
+        const text = shorten(await res.text());
+        console.error(`${tag}: ключ отклонён (${res.status}): ${text}`);
+        throw new AiError('http', `ИИ отклонил ключ (${res.status}): ${text}`);
+      }
+      if (res.status === 400) {
+        const text = await res.text();
+        if (sendEffort && lowEffort && /reasoning|effort/i.test(text)) {
+          console.warn(`[ai] reasoning_effort не принят (${shorten(text, 160)}), отключаю`);
+          sendEffort = false;
+          continue;
+        }
+        if (mode === 'none') {
+          throw new AiError('http', `ИИ отклонил запрос: ${shorten(text)}`);
+        }
         // Провайдеры по-разному сообщают, что не понимают response_format (Gemini — просто
         // «invalid argument»), поэтому на любой 400 пробуем режим попроще.
-        const text = await res.text();
         const next = MODE_ORDER[MODE_ORDER.indexOf(mode) + 1]!;
         console.warn(`[ai] ${mode} не принят (${shorten(text, 160)}), пробую ${next}`);
         mode = next;
         continue;
       }
-      if (res.status === 400) {
-        throw new AiError('http', `ИИ отклонил запрос: ${shorten(await res.text())}`);
-      }
       if (!res.ok) {
+        console.error(`${tag}: ${res.status} за ${spent} мс`);
         throw new AiError('http', `ИИ ответил ошибкой ${res.status}: ${shorten(await res.text())}`);
       }
 
@@ -139,6 +179,10 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
         choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
         usage?: { total_tokens?: number };
       };
+      if (!isTest)
+        console.info(
+          `${tag}: ок за ${spent} мс, токенов ${data.usage?.total_tokens ?? '?'} (${mode})`,
+        );
       const choice = data.choices?.[0];
       const content = choice?.message?.content;
       if (!content) {

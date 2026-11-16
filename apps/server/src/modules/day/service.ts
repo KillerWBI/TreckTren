@@ -408,13 +408,14 @@ export async function parseMeal(
     if (!(err instanceof AiError)) throw err;
     await recordUsage(userId, today, 0);
     console.warn(`[ai] разбор еды не удался: ${err.kind}: ${err.message}`);
-    throw new AppError(
-      502,
-      'AI_UNAVAILABLE',
-      err.kind === 'timeout'
-        ? 'ИИ не ответил вовремя — повтори или впиши вручную'
-        : 'ИИ не смог разобрать — переформулируй или впиши вручную',
-    );
+    const messages: Record<AiError['kind'], string> = {
+      timeout: 'ИИ не ответил за 30 секунд — повтори или впиши вручную',
+      rate_limited: 'Лимит запросов к ИИ исчерпан — подожди минуту или впиши вручную',
+      http: 'ИИ сейчас недоступен — повтори чуть позже или впиши вручную',
+      bad_response: 'ИИ не смог разобрать — переформулируй или впиши вручную',
+      not_configured: 'ИИ не подключён — впиши продукты вручную',
+    };
+    throw new AppError(502, 'AI_UNAVAILABLE', messages[err.kind]);
   }
 }
 

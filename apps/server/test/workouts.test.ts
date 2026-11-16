@@ -7,7 +7,7 @@ import type {
   WorkoutResponse,
   WorkoutSetView,
 } from '@trektren/shared';
-import { disabledAi } from '../src/ai/client.js';
+import { AiError, disabledAi, type AiProvider } from '../src/ai/client.js';
 import { createApp } from '../src/app.js';
 import { addDays, mondayOf, todayIn } from '../src/dates.js';
 import { pool } from '../src/db.js';
@@ -379,5 +379,161 @@ describe('тренировка: API', () => {
     const sessions = (res.body as PlanResponse).sessions;
     expect(sessions.filter((s) => s.date === first.date)).toHaveLength(1);
     expect(sessions.find((s) => s.date === first.date)!.workout).not.toBeNull();
+  });
+});
+
+describe('тренировка: убрать упражнение и разбор от ИИ', () => {
+  let failNext = false;
+  const fakeAi: AiProvider = {
+    enabled: true,
+    model: 'fake',
+    generateJson: <T>(req: { name: string }) => {
+      // План собирается по правилам: этот ИИ умеет только заметку к тренировке.
+      if (req.name !== 'workout_note') return Promise.reject(new AiError('bad_response', 'нет'));
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new AiError('timeout', 'ИИ не ответил вовремя'));
+      }
+      return Promise.resolve({
+        value: { note: 'Присед по плану, жим добери.' } as T,
+        model: 'fake',
+        tokens: 10,
+      });
+    },
+  };
+  const aiApp = createApp({ authMode: 'password', ai: fakeAi });
+
+  async function started() {
+    const user = await registerUser();
+    const auth = bearer(user.accessToken);
+    const card: AthleteCard = {
+      goals: { primary: 'strength' },
+      basics: { sex: 'male', heightCm: 180, weightKg: 80 },
+      availability: { sessionsPerWeek: 3, sessionMinutes: 90 },
+    };
+    await request(aiApp).patch('/api/v1/card').set(auth).send({ patch: card }).expect(200);
+    await request(aiApp)
+      .put('/api/v1/strength')
+      .set(auth)
+      .send({ lifts: [{ slug: 'barbell-back-squat', testedKg: 120 }] })
+      .expect(200);
+    const plan = (
+      await request(aiApp).post('/api/v1/plan/generate').set(auth).send({ dates: MWF }).expect(200)
+    ).body as PlanResponse;
+    const start = await request(aiApp)
+      .post('/api/v1/workouts')
+      .set(auth)
+      .send({ sessionId: plan.sessions[0]!.id, readiness: 4 })
+      .expect(201);
+    return { auth, w: start.body as WorkoutResponse };
+  }
+
+  it('убранное упражнение не попадает в разбор, его можно вернуть', async () => {
+    const { auth, w } = await started();
+    const id = w.workout.id;
+    const [first, second] = w.session!.exercises;
+    expect(second).toBeDefined();
+    await request(aiApp)
+      .put(`/api/v1/workouts/${id}/sets`)
+      .set(auth)
+      .send({ exerciseSlug: second!.slug, setNo: 1, weightKg: 20, reps: 8, rir: 2 })
+      .expect(200);
+
+    await request(aiApp)
+      .delete(`/api/v1/workouts/${id}/exercises/${second!.slug}`)
+      .set(auth)
+      .expect(204);
+    let got = (await request(aiApp).get(`/api/v1/workouts/${id}`).set(auth).expect(200))
+      .body as WorkoutResponse;
+    expect(got.workout.removedSlugs).toEqual([second!.slug]);
+    expect(got.workout.sets.filter((s) => s.exerciseSlug === second!.slug)).toHaveLength(0);
+
+    // Вернуть и снова убрать — без дублей.
+    await request(aiApp)
+      .post(`/api/v1/workouts/${id}/exercises/${second!.slug}`)
+      .set(auth)
+      .expect(204);
+    got = (await request(aiApp).get(`/api/v1/workouts/${id}`).set(auth).expect(200)).body;
+    expect(got.workout.removedSlugs).toEqual([]);
+    await request(aiApp)
+      .delete(`/api/v1/workouts/${id}/exercises/${second!.slug}`)
+      .set(auth)
+      .expect(204);
+    await request(aiApp)
+      .delete(`/api/v1/workouts/${id}/exercises/${second!.slug}`)
+      .set(auth)
+      .expect(204);
+
+    await request(aiApp)
+      .put(`/api/v1/workouts/${id}/sets`)
+      .set(auth)
+      .send({ exerciseSlug: first!.slug, setNo: 1, weightKg: 80, reps: 5, rir: 2 })
+      .expect(200);
+    const done = (
+      await request(aiApp).post(`/api/v1/workouts/${id}/finish`).set(auth).send({}).expect(200)
+    ).body as WorkoutResponse;
+    const slugs = done.workout.analysis!.exercises.map((e) => e.slug);
+    expect(slugs).not.toContain(second!.slug);
+    expect(done.workout.removedSlugs).toEqual([second!.slug]);
+  });
+
+  it('завершение не ждёт ИИ; разбор приходит отдельным запросом, сбой можно повторить', async () => {
+    const { auth, w } = await started();
+    const id = w.workout.id;
+    await request(aiApp)
+      .put(`/api/v1/workouts/${id}/sets`)
+      .set(auth)
+      .send({
+        exerciseSlug: w.session!.exercises[0]!.slug,
+        setNo: 1,
+        weightKg: 80,
+        reps: 5,
+        rir: 2,
+      })
+      .expect(200);
+    // До завершения разбора нет.
+    await request(aiApp).post(`/api/v1/workouts/${id}/coach-note`).set(auth).expect(409);
+
+    const done = (
+      await request(aiApp).post(`/api/v1/workouts/${id}/finish`).set(auth).send({}).expect(200)
+    ).body as WorkoutResponse;
+    expect(done.workout.analysis).toMatchObject({ coachNote: null, coachStatus: 'pending' });
+
+    failNext = true;
+    const failed = (
+      await request(aiApp).post(`/api/v1/workouts/${id}/coach-note`).set(auth).expect(200)
+    ).body as WorkoutResponse;
+    expect(failed.workout.analysis).toMatchObject({
+      coachNote: null,
+      coachStatus: 'unavailable',
+      coachError: 'ИИ не ответил за 30 секунд',
+    });
+
+    const ok = (
+      await request(aiApp).post(`/api/v1/workouts/${id}/coach-note`).set(auth).expect(200)
+    ).body as WorkoutResponse;
+    expect(ok.workout.analysis).toMatchObject({
+      coachNote: 'Присед по плану, жим добери.',
+      coachStatus: 'ok',
+    });
+    expect(ok.workout.analysis).not.toHaveProperty('coachError');
+  });
+
+  it('без ИИ разбор помечен «ИИ не подключён»', async () => {
+    const user = await registerUser();
+    const auth = bearer(user.accessToken);
+    const start = await request(app).post('/api/v1/workouts').set(auth).send({}).expect(201);
+    const id = start.body.workout.id;
+    await request(app)
+      .put(`/api/v1/workouts/${id}/sets`)
+      .set(auth)
+      .send({ exerciseSlug: 'barbell-back-squat', setNo: 1, weightKg: 60, reps: 5, rir: 2 })
+      .expect(200);
+    const done = await request(app)
+      .post(`/api/v1/workouts/${id}/finish`)
+      .set(auth)
+      .send({})
+      .expect(200);
+    expect(done.body.workout.analysis.coachStatus).toBe('disabled');
   });
 });

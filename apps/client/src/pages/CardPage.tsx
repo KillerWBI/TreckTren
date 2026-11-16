@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Check, Dumbbell, Settings } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { AthleteCard, CardResponse } from '@trektren/shared';
@@ -12,9 +12,11 @@ import { CARD_KEY } from '../card/useSaveCard';
 import { WeakPointsEditor } from '../card/WeakPointsEditor';
 import { StrengthForm, strengthSummary } from '../plan/StrengthForm';
 import { useExercises } from '../plan/usePlan';
+import { MeasurementsCard } from '../measurements/MeasurementsCard';
 import { Portrait } from '../portrait/Portrait';
 
 export function CardPage() {
+  const location = useLocation();
   const query = useQuery({ queryKey: CARD_KEY, queryFn: () => api<CardResponse>('/card') });
   const [open, setOpen] = useState<SectionKey | 'strength' | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -60,6 +62,7 @@ export function CardPage() {
       </p>
 
       <Portrait />
+      <MeasurementsCard autoOpen={location.hash === '#measurements'} />
 
       <div className="cols cols-even card-cols">
         <div className="col">

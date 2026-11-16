@@ -249,7 +249,8 @@ const NEUTRAL: Shape['levels'] = {
  */
 export function Portrait() {
   const query = usePortrait();
-  const [compare, setCompare] = useState(false);
+  // С каким старым портретом сравниваем: 'start' — с началом пути или id замера.
+  const [compareWith, setCompareWith] = useState<string | null>(null);
   const [selected, setSelected] = useState<MuscleGroup | null>(null);
   const [part, setPart] = useState<string | null>(null);
   // Телефон: одна большая фигура и переключатель — мелкие мышцы так легче нажать.
@@ -308,13 +309,20 @@ export function Portrait() {
     );
   }
 
-  const { completeness: c, body, start } = data;
+  const { completeness: c, body, start, snapshots } = data;
   const complete = c.filled >= c.total;
   const empty = c.filled === 0;
   const since = start ? Math.round((Date.now() - new Date(start.date).getTime()) / 86400000) : 0;
-  const showStart = start !== null && since >= 7;
-  const ghost = compare && showStart && start ? shapeOf(start.body, 1) : null;
-  const weightDelta = start ? Math.round((body.weightKg - start.body.weightKg) * 10) / 10 : 0;
+  // Старые портреты: каждый прошлый замер и начало пути (если прошла неделя и это не тот же день).
+  const pastPortraits: Array<{ id: string; label: string; date: string; body: typeof body }> = [
+    ...snapshots.map((x) => ({ id: x.id, label: 'замеры', date: x.date, body: x.body })),
+    ...(start !== null && since >= 7 && !snapshots.some((x) => x.date === start.date)
+      ? [{ id: 'start', label: 'начало', date: start.date, body: start.body }]
+      : []),
+  ];
+  const chosen = pastPortraits.find((x) => x.id === compareWith) ?? null;
+  const ghost = chosen ? shapeOf(chosen.body, 1) : null;
+  const weightDelta = chosen ? Math.round((body.weightKg - chosen.body.weightKg) * 10) / 10 : 0;
   const status = new Map(data.muscles.map((m) => [m.group, m.status]));
   const detail = selected ? data.muscles.find((m) => m.group === selected) : undefined;
   const counts = STATUS_ORDER.map((s) => ({
@@ -455,26 +463,45 @@ export function Portrait() {
                 {body.bodyFatPct}%
               </span>
               <span className="stat-label">
-                жир{body.bodyFatEstimated ? ', оценка по ИМТ и возрасту' : ''}
+                жир
+                {body.bodyFatSource === 'tape'
+                  ? ', оценка по замерам шеи и талии'
+                  : body.bodyFatEstimated
+                    ? ', оценка по ИМТ и возрасту'
+                    : ''}
               </span>
             </span>
           </div>
 
-          {showStart && start && (
+          {body.girthsDate && (
+            <p className="field-hint">
+              Манекен подогнан под твои замеры от {formatDate(body.girthsDate).replace(' г.', '')}.
+            </p>
+          )}
+
+          {pastPortraits.length > 0 && (
             <div className="portrait-compare">
-              <button
-                type="button"
-                className="chip"
-                aria-pressed={compare}
-                onClick={() => setCompare((v) => !v)}
-              >
-                Сравнить с началом
-              </button>
-              <span className="card-sub">
-                {formatDate(start.date).replace(' г.', '')}: {num(start.body.weightKg)} кг
-                {weightDelta !== 0 &&
-                  `, сейчас ${weightDelta > 0 ? '+' : '−'}${num(Math.abs(weightDelta))} кг`}
-              </span>
+              <span className="card-sub">Наложить старый портрет:</span>
+              {pastPortraits.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="chip"
+                  aria-pressed={compareWith === p.id}
+                  onClick={() => setCompareWith((v) => (v === p.id ? null : p.id))}
+                >
+                  {formatDate(p.date).replace(' г.', '')}
+                  <span className="chip-kcal">{p.label}</span>
+                </button>
+              ))}
+              {chosen && (
+                <span className="card-sub">
+                  Тогда {num(chosen.body.weightKg)} кг
+                  {weightDelta !== 0 &&
+                    `, сейчас ${weightDelta > 0 ? '+' : '−'}${num(Math.abs(weightDelta))} кг`}
+                  . Контур прошлого — серый.
+                </span>
+              )}
             </div>
           )}
         </div>
