@@ -8,7 +8,8 @@ export interface ChatMessage {
   content: string;
 }
 
-export type AiErrorKind = 'not_configured' | 'rate_limited' | 'timeout' | 'http' | 'bad_response';
+export type AiErrorKind =
+  'not_configured' | 'auth' | 'rate_limited' | 'timeout' | 'http' | 'bad_response';
 
 export class AiError extends Error {
   constructor(
@@ -150,10 +151,15 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): AiProvider {
       if (res.status === 401 || res.status === 403) {
         const text = shorten(await res.text());
         console.error(`${tag}: ключ отклонён (${res.status}): ${text}`);
-        throw new AiError('http', `ИИ отклонил ключ (${res.status}): ${text}`);
+        throw new AiError('auth', `ИИ отклонил ключ (${res.status}): ${text}`);
       }
       if (res.status === 400) {
         const text = await res.text();
+        // Gemini на неверный ключ отвечает 400, а не 401: режимы JSON тут ни при чём.
+        if (/api[ _-]?key/i.test(text)) {
+          console.error(`${tag}: ключ отклонён (400): ${shorten(text)}`);
+          throw new AiError('auth', `ИИ отклонил ключ: ${shorten(text)}`);
+        }
         if (sendEffort && lowEffort && /reasoning|effort/i.test(text)) {
           console.warn(`[ai] reasoning_effort не принят (${shorten(text, 160)}), отключаю`);
           sendEffort = false;

@@ -42,6 +42,7 @@ import { describeSchedule } from './schedule.js';
 
 const AI_FAILURE_TEXT: Record<AiError['kind'], string> = {
   not_configured: 'ИИ не подключён',
+  auth: 'Ключ ИИ недействителен',
   rate_limited: 'У ИИ закончился лимит запросов',
   timeout: 'ИИ не ответил вовремя',
   http: 'ИИ вернул ошибку',

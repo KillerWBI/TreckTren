@@ -449,6 +449,7 @@ export async function writeCoachNote(
       http: 'ИИ сейчас недоступен',
       bad_response: 'ИИ вернул ответ, который не удалось прочитать',
       not_configured: 'ИИ не подключён',
+      auth: 'Ключ ИИ недействителен — нужен новый AI_API_KEY в Railway',
     };
     return save({ coachStatus: 'unavailable', coachError: reasons[err.kind] });
   }

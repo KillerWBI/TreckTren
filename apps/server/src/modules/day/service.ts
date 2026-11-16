@@ -414,6 +414,7 @@ export async function parseMeal(
       http: 'ИИ сейчас недоступен — повтори чуть позже или впиши вручную',
       bad_response: 'ИИ не смог разобрать — переформулируй или впиши вручную',
       not_configured: 'ИИ не подключён — впиши продукты вручную',
+      auth: 'Ключ ИИ недействителен — нужен новый AI_API_KEY в Railway. Пока впиши вручную',
     };
     throw new AppError(502, 'AI_UNAVAILABLE', messages[err.kind]);
   }

@@ -166,7 +166,7 @@ describe('ИИ-клиент', () => {
       .generateJson(request)
       .catch((e: unknown) => e)) as AiError;
     expect(err).toBeInstanceOf(AiError);
-    expect(err.kind).toBe('http');
+    expect(err.kind).toBe('auth');
     expect(err.message).not.toContain('1234567890');
   });
 
@@ -270,5 +270,22 @@ describe('ИИ-клиент: быстрые задачи', () => {
       .catch((e: unknown) => e)) as AiError;
     expect(err).toBeInstanceOf(AiError);
     expect(err.kind).toBe('timeout');
+  });
+});
+
+describe('ИИ-клиент: неверный ключ', () => {
+  it('Gemini отвечает 400 «valid API key» — сразу ошибка ключа, без перебора режимов', async () => {
+    const { impl, calls } = fakeFetch([
+      () =>
+        new Response(
+          '[{"error":{"code":400,"message":"Please pass a valid API key","status":"INVALID_ARGUMENT"}}]',
+          { status: 400 },
+        ),
+    ]);
+    const err = (await provider(impl)
+      .generateJson({ ...request, task: 'food' })
+      .catch((e: unknown) => e)) as AiError;
+    expect(err.kind).toBe('auth');
+    expect(calls).toHaveLength(1);
   });
 });
